@@ -5,6 +5,11 @@
             "name": "default",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build"
+        },
+        {
+            "name": "web",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-web"
         }
     ],
     "buildPresets": [
