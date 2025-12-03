@@ -39,8 +39,8 @@ int main() {
     wgpu::TextureView depthView = depthTexture.CreateView();
 
     // Create scene
-    scene::Mesh cubeMesh = scene::Mesh::createCube(ctx.device, ctx.queue);
-    scene::Transform cubeTransform;
+    scene::Mesh suzanneMesh = scene::Mesh::createMesh("models/Suzanne.obj", ctx.device, ctx.queue);
+    scene::Transform suzanneTransform;
     scene::Camera camera(800.0f / 600.0f);
     camera.position = {2.0f, 2.0f, 3.0f};
 
@@ -56,11 +56,11 @@ int main() {
         lastTime = currentTime;
 
         // Rotate the cube
-        cubeTransform.rotate(deltaTime * 0.5f, Eigen::Vector3f::UnitY());
-        cubeTransform.rotate(deltaTime * 0.3f, Eigen::Vector3f::UnitX());
+        suzanneTransform.rotate(deltaTime * 0.5f, Eigen::Vector3f::UnitY());
+        suzanneTransform.rotate(deltaTime * 0.3f, Eigen::Vector3f::UnitX());
 
         // Calculate MVP matrix
-        Eigen::Matrix4f model = cubeTransform.getMatrix();
+        Eigen::Matrix4f model = suzanneTransform.getMatrix();
         Eigen::Matrix4f viewProj = camera.getViewProjectionMatrix();
         Eigen::Matrix4f mvp = viewProj * model;
 
@@ -70,8 +70,8 @@ int main() {
         renderer.updateUniformBuffer(&uniforms, sizeof(uniforms));
 
         // Render
-        renderer.render(cubeMesh.vertexBuffer, cubeMesh.indexBuffer, 
-                       cubeMesh.indexCount, depthView);
+        renderer.render(suzanneMesh.vertexBuffer, suzanneMesh.indexBuffer, 
+                       suzanneMesh.indexCount, depthView);
 
         window.present();
         ctx.processEvents();

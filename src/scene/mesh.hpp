@@ -1,7 +1,11 @@
 #pragma once
+#define TINYOBJLOADER_IMPLEMENTATION
 
 #include <vector>
 #include <webgpu/webgpu_cpp.h>
+#include "../external/tiny_obj_loader.h"
+#include <ranges>
+
 
 namespace scene {
 
@@ -39,6 +43,37 @@ public:
         };
         indexBuffer = device.CreateBuffer(&ibDesc);
         queue.WriteBuffer(indexBuffer, 0, indices.data(), indices.size() * sizeof(uint16_t));
+    }
+
+    static Mesh createMesh(std::string path, wgpu::Device device, wgpu::Queue queue){
+        tinyobj::ObjReaderConfig reader_config;
+        tinyobj::ObjReader reader;
+
+        reader.ParseFromFile(path, reader_config);
+
+        auto& attrib = reader.GetAttrib();
+        auto& shapes = reader.GetShapes();
+        std::vector<float> vertices_raw = attrib.vertices;
+        std::vector<float> colors_raw = attrib.colors;
+
+        std::vector<Vertex> vertices;
+        vertices.resize(vertices_raw.size()/3);
+
+        for(int i = 0; i < vertices_raw.size(); i+=3){
+            
+            vertices[i/3] = {{vertices_raw[i], vertices_raw[i+1], vertices_raw[i+2]},
+                           {colors_raw[i]  , colors_raw[i+1]  , colors_raw[i+2]}};
+        }
+
+        std::vector<uint16_t> indices = shapes[0].mesh.indices 
+            | std::views::transform([](const auto& idx) { return static_cast<uint16_t>(idx.vertex_index); })
+            | std::ranges::to<std::vector<uint16_t>>();
+
+
+
+        Mesh mesh;
+        mesh.upload(device, queue, vertices, indices);
+        return mesh;
     }
 
     // Factory method for a colored cube
