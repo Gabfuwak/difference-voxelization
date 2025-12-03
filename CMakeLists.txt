@@ -9,7 +9,7 @@ set(DAWN_FETCH_DEPENDENCIES ON)
 set(DAWN_BUILD_MONOLITHIC_LIBRARY STATIC)
 add_subdirectory("external/dawn" EXCLUDE_FROM_ALL)
 
-find_library(Eigen REQUIRED)
+find_package(Eigen3 REQUIRED)
 
 add_compile_definitions(SHADERS_DIR="${CMAKE_SOURCE_DIR}/src/shaders/")
 
