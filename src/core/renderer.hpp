@@ -4,16 +4,21 @@
 #include <sstream>
 #include <vector>
 #include <dawn/webgpu_cpp.h>
+#include <opencv2/opencv.hpp>
 
 #include "context.hpp"
-#include "window.hpp"
 
 namespace core {
 
 class Renderer {
 public:
     Context* ctx;
-    Window* window;
+    uint32_t width;
+    uint32_t height;
+
+    wgpu::Texture targetTexture;
+    wgpu::TextureView targetTextureView;
+    wgpu::TextureFormat format = wgpu::TextureFormat::RGBA8Unorm;
 
     wgpu::RenderPipeline pipeline;
     wgpu::BindGroupLayout bindGroupLayout;
@@ -22,7 +27,25 @@ public:
     // Uniform buffer for MVP matrix
     wgpu::Buffer uniformBuffer;
 
-    Renderer(Context* ctx, Window* window) : ctx(ctx), window(window) {}
+    Renderer(Context* ctx, uint32_t width, uint32_t height) 
+        : ctx(ctx), width(width), height(height) {
+        createRenderTarget();
+    }
+
+    void createRenderTarget() {
+        wgpu::TextureDescriptor desc{};
+        desc.label = "Render target";
+        desc.dimension = wgpu::TextureDimension::e2D;
+        desc.size = {width, height, 1};
+        desc.format = format;
+        desc.mipLevelCount = 1;
+        desc.sampleCount = 1;
+        desc.usage = wgpu::TextureUsage::RenderAttachment | 
+                     wgpu::TextureUsage::CopySrc;  // Important for reading back!
+        
+        targetTexture = ctx->device.CreateTexture(&desc);
+        targetTextureView = targetTexture.CreateView();
+    }
 
     void createUniformBuffer(size_t size) {
         wgpu::BufferDescriptor desc{};
@@ -102,7 +125,7 @@ public:
 
         // Fragment state
         wgpu::ColorTargetState colorTarget{};
-        colorTarget.format = window->format;
+        colorTarget.format = format;
 
         wgpu::FragmentState fragmentState{};
         fragmentState.module = shaderModule;
@@ -136,7 +159,7 @@ public:
         wgpu::TextureDescriptor desc{};
         desc.label = "Depth texture";
         desc.usage = wgpu::TextureUsage::RenderAttachment;
-        desc.size = {window->width, window->height, 1};
+        desc.size = {width, height, 1};
         desc.format = wgpu::TextureFormat::Depth24Plus;
         return ctx->device.CreateTexture(&desc);
     }
@@ -144,7 +167,7 @@ public:
     void render(wgpu::Buffer vertexBuffer, wgpu::Buffer indexBuffer, 
                 uint32_t indexCount, wgpu::TextureView depthView) {
         
-        wgpu::TextureView colorView = window->getCurrentTextureView();
+        wgpu::TextureView colorView = targetTextureView;
 
         wgpu::RenderPassColorAttachment colorAttachment{};
         colorAttachment.view = colorView;
@@ -175,6 +198,97 @@ public:
 
         wgpu::CommandBuffer commands = encoder.Finish();
         ctx->queue.Submit(1, &commands);
+    }
+
+    cv::Mat captureFrame() {
+        // Calculate buffer size with padding
+        uint32_t bytesPerRow = width * 4;  // RGBA = 4 bytes per pixel
+        uint32_t paddedBytesPerRow = (bytesPerRow + 255) & ~255;  // Align to 256
+        uint32_t bufferSize = paddedBytesPerRow * height;
+        
+        // Create staging buffer for reading
+        wgpu::BufferDescriptor bufferDesc{};
+        bufferDesc.label = "Staging buffer";
+        bufferDesc.size = bufferSize;
+        bufferDesc.usage = wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::MapRead;
+        wgpu::Buffer stagingBuffer = ctx->device.CreateBuffer(&bufferDesc);
+        
+        // Create command encoder to copy texture to buffer
+        wgpu::CommandEncoder encoder = ctx->device.CreateCommandEncoder();
+        
+        // Source: texture
+        wgpu::TexelCopyTextureInfo source{};
+        source.texture = targetTexture;
+        source.mipLevel = 0;
+        source.origin = {0, 0, 0};
+        source.aspect = wgpu::TextureAspect::All;
+        
+        // Destination: buffer with layout
+        wgpu::TexelCopyBufferLayout layout{};
+        layout.offset = 0;
+        layout.bytesPerRow = paddedBytesPerRow;
+        layout.rowsPerImage = height;
+        
+        wgpu::TexelCopyBufferInfo destination{};
+        destination.buffer = stagingBuffer;
+        destination.layout = layout;
+        
+        wgpu::Extent3D copySize = {width, height, 1};
+        encoder.CopyTextureToBuffer(&source, &destination, &copySize);
+        
+        // Submit copy command
+        wgpu::CommandBuffer commands = encoder.Finish();
+        ctx->queue.Submit(1, &commands);
+        
+        // Wait for GPU work to complete before mapping
+        bool workDone = false;
+        ctx->queue.OnSubmittedWorkDone(
+            wgpu::CallbackMode::AllowProcessEvents,
+            [&workDone](wgpu::QueueWorkDoneStatus status, wgpu::StringView /*message*/) {
+                workDone = true;
+            }
+        );
+        
+        while (!workDone) {
+            ctx->instance.ProcessEvents();
+        }
+        
+        // Map buffer
+        bool mapped = false;
+        stagingBuffer.MapAsync(
+            wgpu::MapMode::Read,
+            0,
+            bufferSize,
+            wgpu::CallbackMode::AllowProcessEvents,
+            [&mapped](wgpu::MapAsyncStatus status, wgpu::StringView /*message*/) {
+                mapped = (status == wgpu::MapAsyncStatus::Success);
+            }
+        );
+        
+        while (!mapped) {
+            ctx->instance.ProcessEvents();
+        }
+        
+        // Get mapped data
+        const uint8_t* data = static_cast<const uint8_t*>(
+            stagingBuffer.GetConstMappedRange(0, bufferSize));
+        
+        // Create OpenCV Mat (RGBA format)
+        cv::Mat image(height, width, CV_8UC4);
+        
+        // Copy data row by row (handling padding)
+        for (uint32_t y = 0; y < height; ++y) {
+            memcpy(image.ptr(y), data + y * paddedBytesPerRow, bytesPerRow);
+        }
+        
+        // Unmap buffer
+        stagingBuffer.Unmap();
+        
+        // Convert RGBA to BGR for OpenCV
+        cv::Mat bgr;
+        cv::cvtColor(image, bgr, cv::COLOR_RGBA2BGR);
+        
+        return bgr;
     }
 
 private:

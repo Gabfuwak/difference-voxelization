@@ -44,6 +44,8 @@ private:
 
     void requestAdapter() {
         wgpu::RequestAdapterOptions options{};
+        options.compatibleSurface = nullptr;
+
         bool adapterReady = false;
         wgpu::StringView errorMessage{};
 

@@ -2,8 +2,8 @@
 #include <GLFW/glfw3.h>
 
 #include "core/context.hpp"
-#include "core/window.hpp"
 #include "core/renderer.hpp"
+#include <opencv2/opencv.hpp>
 #include "scene/transform.hpp"
 #include "scene/mesh.hpp"
 #include "scene/camera.hpp"
@@ -22,15 +22,16 @@ int main() {
     }
 
     // Create window
-    core::Window window(800, 600, "WebGPU Cube");
+    /*core::Window window(800, 600, "WebGPU Cube");
     if (!window.create()) {
         std::cerr << "Failed to create window\n";
         return 1;
     }
     window.createSurface(ctx.instance, ctx.adapter, ctx.device);
+    */
 
     // Create renderer
-    core::Renderer renderer(&ctx, &window);
+    core::Renderer renderer(&ctx, 800, 600);
     renderer.createUniformBuffer(sizeof(Uniforms));
     renderer.createPipeline(SHADERS_DIR "unlit.wgsl");
 
@@ -44,38 +45,33 @@ int main() {
     scene::Camera camera(800.0f / 600.0f);
     camera.position = {2.0f, 2.0f, 3.0f};
 
-    // Main loop
-    float lastTime = glfwGetTime();
     
-    while (!window.shouldClose()) {
-        window.pollEvents();
-
-        // Calculate delta time
-        float currentTime = glfwGetTime();
-        float deltaTime = currentTime - lastTime;
-        lastTime = currentTime;
-
-        // Rotate the cube
-        suzanneTransform.rotate(deltaTime * 0.5f, Eigen::Vector3f::UnitY());
-        suzanneTransform.rotate(deltaTime * 0.3f, Eigen::Vector3f::UnitX());
-
-        // Calculate MVP matrix
-        Eigen::Matrix4f model = suzanneTransform.getMatrix();
-        Eigen::Matrix4f viewProj = camera.getViewProjectionMatrix();
-        Eigen::Matrix4f mvp = viewProj * model;
-
-        // Update uniform buffer (Eigen stores in column-major, which matches WGSL)
+    float time = 0.0f;
+    while (true) {
+        time += 0.016f;
+        
+        suzanneTransform.rotate(0.016f * 0.5f, Eigen::Vector3f::UnitY());
+        
+        Eigen::Matrix4f mvp = camera.getViewProjectionMatrix() * suzanneTransform.getMatrix();
         Uniforms uniforms;
         memcpy(uniforms.mvp, mvp.data(), sizeof(float) * 16);
         renderer.updateUniformBuffer(&uniforms, sizeof(uniforms));
-
-        // Render
+        
         renderer.render(suzanneMesh.vertexBuffer, suzanneMesh.indexBuffer, 
                        suzanneMesh.indexCount, depthView);
-
-        window.present();
+        
+        cv::Mat frame = renderer.captureFrame();
+        
+        
+        cv::imshow("WebGPU Render", frame);
+        
+        int key = cv::waitKey(1);
+        
+        if (key == 27) break;
+        
         ctx.processEvents();
     }
+    
 
     return 0;
 }
