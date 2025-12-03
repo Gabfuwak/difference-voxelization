@@ -1,164 +1,81 @@
 #include <iostream>
-
-#include <webgpu/webgpu_cpp.h>
-#include <webgpu/webgpu_glfw.h>
-#include <dawn/webgpu_cpp_print.h>
 #include <GLFW/glfw3.h>
-#if defined(__EMSCRIPTEN__)
-#include <emscripten/emscripten.h>
-#endif
 
-wgpu::Instance instance;
-wgpu::Adapter adapter;
-wgpu::Device device;
-wgpu::RenderPipeline pipeline;
+#include "core/context.hpp"
+#include "core/window.hpp"
+#include "core/renderer.hpp"
+#include "scene/transform.hpp"
+#include "scene/mesh.hpp"
+#include "scene/camera.hpp"
 
-wgpu::Surface surface;
-wgpu::TextureFormat format;
-const uint32_t kWidth = 512;
-const uint32_t kHeight = 512;
-
-void ConfigureSurface() {
-    wgpu::SurfaceCapabilities capabilities;
-    surface.GetCapabilities(adapter, &capabilities);
-    format = capabilities.formats[0];
-
-    wgpu::SurfaceConfiguration config{
-        .device = device,
-        .format = format,
-        .width = kWidth,
-        .height = kHeight,
-        .presentMode = wgpu::PresentMode::Fifo};
-    surface.Configure(&config);
-}
-
-void Init() {
-    static const auto kTimedWaitAny = wgpu::InstanceFeatureName::TimedWaitAny;
-    wgpu::InstanceDescriptor instanceDesc{
-        .requiredFeatureCount = 1,
-        .requiredFeatures = &kTimedWaitAny
-    };
-    instance = wgpu::CreateInstance(&instanceDesc);
-
-    wgpu::Future f1 = instance.RequestAdapter(
-        nullptr, wgpu::CallbackMode::WaitAnyOnly,
-        [](wgpu::RequestAdapterStatus status, wgpu::Adapter a, wgpu::StringView message) {
-            if (status != wgpu::RequestAdapterStatus::Success) {
-                std::cout << "RequestAdapter: " << message << "\n";
-                exit(0);
-            }
-            adapter = std::move(a);
-        }
-    );
-    instance.WaitAny(f1, UINT64_MAX);
-
-    wgpu::DeviceDescriptor desc{};
-    desc.SetUncapturedErrorCallback([](
-        const wgpu::Device&,
-        wgpu::ErrorType errorType,
-        wgpu::StringView message
-    ) {
-        std::cout << "Error: " << errorType << " - message: " << message << "\n";
-    });
-
-    wgpu::Future f2 = adapter.RequestDevice(
-        &desc, wgpu::CallbackMode::WaitAnyOnly,
-        [](wgpu::RequestDeviceStatus status, wgpu::Device d, wgpu::StringView message) {
-            if (status != wgpu::RequestDeviceStatus::Success) {
-                std::cout << "RequestDevice: " << message << "\n";
-                exit(0);
-            }
-            device = std::move(d);
-        }
-    );
-    instance.WaitAny(f2, UINT64_MAX);
-}
-
-const char shaderCode[] = R"(
-    @vertex fn vert(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
-        const pos = array(vec2f(0, 1), vec2f(-1, -1), vec2f(1, -1));
-        return vec4f(pos[i], 0, 1);
-    }
-
-    @fragment fn frag() -> @location(0) vec4f {
-        return vec4f(1, 0, 0, 1);
-    }
-)";
-
-void CreateRenderPipeline() {
-    wgpu::ShaderSourceWGSL wgsl {{ .code = shaderCode }};
-
-    wgpu::ShaderModuleDescriptor shaderModuleDescriptor{ .nextInChain = &wgsl };
-    wgpu::ShaderModule shaderModule =
-        device.CreateShaderModule(&shaderModuleDescriptor);
-
-    wgpu::ColorTargetState colorTargetState { .format = format };
-
-    wgpu::FragmentState fragmentState {
-        .module = shaderModule,
-        .targetCount = 1,
-        .targets = &colorTargetState
-    };
-
-  wgpu::RenderPipelineDescriptor descriptor{.vertex = {.module = shaderModule},
-                                            .fragment = &fragmentState};
-  pipeline = device.CreateRenderPipeline(&descriptor);
-}
-
-void Render() {
-    wgpu::SurfaceTexture surfaceTexture;
-    surface.GetCurrentTexture(&surfaceTexture);
-
-    wgpu::RenderPassColorAttachment attachment {
-        .view = surfaceTexture.texture.CreateView(),
-        .loadOp = wgpu::LoadOp::Clear,
-        .storeOp = wgpu::StoreOp::Store
-    };
-
-    wgpu::RenderPassDescriptor renderpass {
-        .colorAttachmentCount = 1,
-        .colorAttachments = &attachment
-    };
-
-    wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
-    wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderpass);
-    pass.SetPipeline(pipeline);
-    pass.Draw(3);
-    pass.End();
-    wgpu::CommandBuffer commands = encoder.Finish();
-    device.GetQueue().Submit(1, &commands);
-}
-
-void InitGraphics() {
-    ConfigureSurface();
-    CreateRenderPipeline();
-}
-
-void Start() {
-    if (!glfwInit()) {
-        return;
-    }
-
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow* window =
-        glfwCreateWindow(kWidth, kHeight, "WebGPU window", nullptr, nullptr);
-    surface = wgpu::glfw::CreateSurfaceForWindow(instance, window);
-
-    InitGraphics();
-
-#if defined(__EMSCRIPTEN__)
-    emscripten_set_main_loop(Render, 0, false);
-#else
-    while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents();
-        Render();
-        surface.Present();
-        instance.ProcessEvents();
-    }
-#endif
-}
+// Uniform buffer structure (must match shader)
+struct Uniforms {
+    float mvp[16];
+};
 
 int main() {
-    Init();
-    Start();
+    // Initialize core
+    core::Context ctx;
+    if (!ctx.initialize()) {
+        std::cerr << "Failed to initialize WebGPU context\n";
+        return 1;
+    }
+
+    // Create window
+    core::Window window(800, 600, "WebGPU Cube");
+    if (!window.create()) {
+        std::cerr << "Failed to create window\n";
+        return 1;
+    }
+    window.createSurface(ctx.instance, ctx.adapter, ctx.device);
+
+    // Create renderer
+    core::Renderer renderer(&ctx, &window);
+    renderer.createUniformBuffer(sizeof(Uniforms));
+    renderer.createPipeline(SHADERS_DIR "unlit.wgsl");
+
+    // Create depth texture
+    wgpu::Texture depthTexture = renderer.createDepthTexture();
+    wgpu::TextureView depthView = depthTexture.CreateView();
+
+    // Create scene
+    scene::Mesh cubeMesh = scene::Mesh::createCube(ctx.device, ctx.queue);
+    scene::Transform cubeTransform;
+    scene::Camera camera(800.0f / 600.0f);
+    camera.position = {2.0f, 2.0f, 3.0f};
+
+    // Main loop
+    float lastTime = glfwGetTime();
+    
+    while (!window.shouldClose()) {
+        window.pollEvents();
+
+        // Calculate delta time
+        float currentTime = glfwGetTime();
+        float deltaTime = currentTime - lastTime;
+        lastTime = currentTime;
+
+        // Rotate the cube
+        cubeTransform.rotate(deltaTime * 0.5f, Eigen::Vector3f::UnitY());
+        cubeTransform.rotate(deltaTime * 0.3f, Eigen::Vector3f::UnitX());
+
+        // Calculate MVP matrix
+        Eigen::Matrix4f model = cubeTransform.getMatrix();
+        Eigen::Matrix4f viewProj = camera.getViewProjectionMatrix();
+        Eigen::Matrix4f mvp = viewProj * model;
+
+        // Update uniform buffer (Eigen stores in column-major, which matches WGSL)
+        Uniforms uniforms;
+        memcpy(uniforms.mvp, mvp.data(), sizeof(float) * 16);
+        renderer.updateUniformBuffer(&uniforms, sizeof(uniforms));
+
+        // Render
+        renderer.render(cubeMesh.vertexBuffer, cubeMesh.indexBuffer, 
+                       cubeMesh.indexCount, depthView);
+
+        window.present();
+        ctx.processEvents();
+    }
+
+    return 0;
 }
