@@ -3,7 +3,7 @@
 
 #include <vector>
 #include <webgpu/webgpu_cpp.h>
-#include "../external/tiny_obj_loader.h"
+#include "tiny_obj_loader.h"
 #include <ranges>
 
 

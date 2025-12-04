@@ -2,3 +2,6 @@
 	path = external/dawn
 	url = https://github.com/google/dawn.git
 	shallow = true
+[submodule "external/tinyobjloader"]
+	path = external/tinyobjloader
+	url = https://github.com/tinyobjloader/tinyobjloader
