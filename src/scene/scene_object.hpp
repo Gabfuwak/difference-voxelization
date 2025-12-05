@@ -1,4 +1,3 @@
-// scene/scene_object.hpp
 #pragma once
 
 #include <memory>

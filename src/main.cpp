@@ -33,17 +33,25 @@ int main() {
         {suzanneMesh, scene::Transform()},
     };
 
-    scene::Camera camera(800.0f / 600.0f);
-    camera.position = {2.0f, 2.0f, 3.0f};
+    std::vector<scene::Camera> cameras;
+
+    scene::Camera cam1(800.0f / 600.0f);
+    cam1.position = {2.0f, 2.0f, 3.0f};
+    cameras.push_back(cam1);
+
+    scene::Camera cam2(800.0f / 600.0f);
+    cam2.position = {-2.0f, 2.0f, 3.0f};
+    cameras.push_back(cam2);
 
     while (true) {
         // Rotate suzanne (index 1)
         objects[1].transform.rotate(0.016f * 0.5f, Eigen::Vector3f::UnitY());
 
-        renderer.renderScene(objects, camera, depthView);
-
-        cv::Mat frame = renderer.captureFrame();
-        cv::imshow("WebGPU Render", frame);
+        for (size_t i = 0; i < cameras.size(); ++i) {
+            renderer.renderScene(objects, cameras[i], depthView);
+            cv::Mat frame = renderer.captureFrame();
+            cv::imshow("Camera " + std::to_string(i), frame);
+        }
 
         if (cv::waitKey(1) == 27) break;
 
