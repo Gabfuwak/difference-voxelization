@@ -22,16 +22,10 @@ target_include_directories(main PRIVATE
     ${CMAKE_SOURCE_DIR}/external/tinyobjloader
 )
 
-if (EMSCRIPTEN)
-    set_target_properties(main PROPERTIES SUFFIX ".html")
-    target_link_libraries(main PRIVATE emdawnwebgpu_cpp webgpu_glfw Eigen3::Eigen)
-    target_link_options(main PRIVATE "-sASYNCIFY=1" "-sUSE_GLFW=3")
-else()
-    target_link_libraries(main PRIVATE
-        webgpu_dawn 
-        webgpu_glfw 
-        glfw 
-        Eigen3::Eigen
-        ${OpenCV_LIBS}
-    )
-endif()
+target_link_libraries(main PRIVATE
+    webgpu_dawn 
+    webgpu_glfw 
+    glfw 
+    Eigen3::Eigen
+    ${OpenCV_LIBS}
+)
