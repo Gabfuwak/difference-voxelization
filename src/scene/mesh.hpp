@@ -65,9 +65,10 @@ public:
                            {colors_raw[i]  , colors_raw[i+1]  , colors_raw[i+2]}};
         }
 
-        std::vector<uint16_t> indices = shapes[0].mesh.indices 
-            | std::views::transform([](const auto& idx) { return static_cast<uint16_t>(idx.vertex_index); })
-            | std::ranges::to<std::vector<uint16_t>>();
+        std::vector<uint16_t> indices;
+        for (const auto& idx : shapes[0].mesh.indices) {
+            indices.push_back(static_cast<uint16_t>(idx.vertex_index));
+        }
 
 
 
