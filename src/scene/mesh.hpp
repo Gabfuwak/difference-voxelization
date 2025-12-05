@@ -137,6 +137,58 @@ public:
         mesh.upload(device, queue, vertices, indices);
         return mesh;
     }
+
+    // Factory method for a grid plane
+    static Mesh createGridPlane(wgpu::Device device, wgpu::Queue queue, 
+                               float size = 10.0f, int divisions = 10) {
+        std::vector<Vertex> vertices;
+        std::vector<uint16_t> indices;
+        
+        // Calculate step size between grid lines
+        float step = size / divisions;
+        float halfSize = size / 2.0f;
+        
+        // Generate vertices
+        for (int z = 0; z <= divisions; ++z) {
+            for (int x = 0; x <= divisions; ++x) {
+                float xPos = -halfSize + x * step;
+                float zPos = -halfSize + z * step;
+                
+                // Create a checkerboard or gradient color pattern
+                float colorIntensity = ((x + z) % 2 == 0) ? 0.8f : 0.6f;
+                
+                vertices.push_back({
+                    {xPos, 0.0f, zPos},
+                    {colorIntensity, colorIntensity, colorIntensity}
+                });
+            }
+        }
+        
+        // Generate indices for triangles
+        for (int z = 0; z < divisions; ++z) {
+            for (int x = 0; x < divisions; ++x) {
+                // Calculate vertex indices for this grid cell
+                uint16_t topLeft = z * (divisions + 1) + x;
+                uint16_t topRight = topLeft + 1;
+                uint16_t bottomLeft = (z + 1) * (divisions + 1) + x;
+                uint16_t bottomRight = bottomLeft + 1;
+                
+                // First triangle (top-left, bottom-left, top-right)
+                indices.push_back(topLeft);
+                indices.push_back(bottomLeft);
+                indices.push_back(topRight);
+                
+                // Second triangle (top-right, bottom-left, bottom-right)
+                indices.push_back(topRight);
+                indices.push_back(bottomLeft);
+                indices.push_back(bottomRight);
+            }
+        }
+        
+        Mesh mesh;
+        mesh.upload(device, queue, vertices, indices);
+        return mesh;
+    }
 };
 
 } // namespace scene

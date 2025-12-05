@@ -5,6 +5,8 @@
 #include <vector>
 #include <dawn/webgpu_cpp.h>
 #include <opencv2/opencv.hpp>
+#include "scene/scene_object.hpp"
+#include "scene/camera.hpp"
 
 #include "context.hpp"
 
@@ -26,6 +28,8 @@ public:
 
     // Uniform buffer for MVP matrix
     wgpu::Buffer uniformBuffer;
+
+    bool wireframeMode = true;
 
     Renderer(Context* ctx, uint32_t width, uint32_t height) 
         : ctx(ctx), width(width), height(height) {
@@ -141,7 +145,11 @@ public:
 
         // Primitive state
         wgpu::PrimitiveState primitive{};
-        primitive.topology = wgpu::PrimitiveTopology::TriangleList;
+        if (wireframeMode) {
+            primitive.topology = wgpu::PrimitiveTopology::LineList;
+        } else {
+            primitive.topology = wgpu::PrimitiveTopology::TriangleList;
+        }
         primitive.cullMode = wgpu::CullMode::Back;
 
         // Render pipeline
@@ -164,41 +172,24 @@ public:
         return ctx->device.CreateTexture(&desc);
     }
 
-    void render(wgpu::Buffer vertexBuffer, wgpu::Buffer indexBuffer, 
-                uint32_t indexCount, wgpu::TextureView depthView) {
+    void renderScene(const std::vector<scene::SceneObject>& objects,
+                     const scene::Camera& camera,
+                     wgpu::TextureView depthView) {
         
-        wgpu::TextureView colorView = targetTextureView;
-
-        wgpu::RenderPassColorAttachment colorAttachment{};
-        colorAttachment.view = colorView;
-        colorAttachment.loadOp = wgpu::LoadOp::Clear;
-        colorAttachment.storeOp = wgpu::StoreOp::Store;
-        colorAttachment.clearValue = {0.1, 0.1, 0.1, 1.0};
-
-        wgpu::RenderPassDepthStencilAttachment depthAttachment{};
-        depthAttachment.view = depthView;
-        depthAttachment.depthLoadOp = wgpu::LoadOp::Clear;
-        depthAttachment.depthStoreOp = wgpu::StoreOp::Store;
-        depthAttachment.depthClearValue = 1.0f;
-
-        wgpu::RenderPassDescriptor renderPassDesc{};
-        renderPassDesc.colorAttachmentCount = 1;
-        renderPassDesc.colorAttachments = &colorAttachment;
-        renderPassDesc.depthStencilAttachment = &depthAttachment;
-
-        wgpu::CommandEncoder encoder = ctx->device.CreateCommandEncoder();
-        wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPassDesc);
-        
-        pass.SetPipeline(pipeline);
-        pass.SetBindGroup(0, bindGroup);
-        pass.SetVertexBuffer(0, vertexBuffer);
-        pass.SetIndexBuffer(indexBuffer, wgpu::IndexFormat::Uint16);
-        pass.DrawIndexed(indexCount);
-        pass.End();
-
-        wgpu::CommandBuffer commands = encoder.Finish();
-        ctx->queue.Submit(1, &commands);
+        for (size_t i = 0; i < objects.size(); ++i) {
+            const auto& obj = objects[i];
+            
+            // Compute MVP for this object
+            Eigen::Matrix4f mvp = camera.getViewProjectionMatrix() * obj.transform.getMatrix();
+            updateUniformBuffer(mvp.data(), sizeof(float) * 16);
+            
+            // Draw (clear only on first object)
+            render(obj.mesh->vertexBuffer, obj.mesh->indexBuffer,
+                   obj.mesh->indexCount, depthView, i == 0);
+        }
     }
+
+    
 
     cv::Mat captureFrame() {
         // Calculate buffer size with padding
@@ -292,6 +283,46 @@ public:
     }
 
 private:
+
+    void render(wgpu::Buffer vertexBuffer, wgpu::Buffer indexBuffer, 
+                uint32_t indexCount, wgpu::TextureView depthView, bool clear) {
+        
+        wgpu::TextureView colorView = targetTextureView;
+
+        wgpu::RenderPassColorAttachment colorAttachment{};
+        colorAttachment.view = colorView;
+        colorAttachment.loadOp = clear ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load;
+        colorAttachment.storeOp = wgpu::StoreOp::Store;
+        colorAttachment.clearValue = {0.1, 0.1, 0.1, 1.0};
+
+        wgpu::RenderPassDepthStencilAttachment depthAttachment{};
+        depthAttachment.view = depthView;
+        depthAttachment.depthLoadOp = clear ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load;
+        depthAttachment.depthStoreOp = wgpu::StoreOp::Store;
+        depthAttachment.depthClearValue = 1.0f;
+
+        wgpu::RenderPassDescriptor renderPassDesc{};
+        renderPassDesc.colorAttachmentCount = 1;
+        renderPassDesc.colorAttachments = &colorAttachment;
+        renderPassDesc.depthStencilAttachment = &depthAttachment;
+
+        wgpu::CommandEncoder encoder = ctx->device.CreateCommandEncoder();
+        wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPassDesc);
+        
+        pass.SetPipeline(pipeline);
+        pass.SetBindGroup(0, bindGroup);
+        pass.SetVertexBuffer(0, vertexBuffer);
+        pass.SetIndexBuffer(indexBuffer, wgpu::IndexFormat::Uint16);
+        pass.DrawIndexed(indexCount);
+        pass.End();
+
+        wgpu::CommandBuffer commands = encoder.Finish();
+        ctx->queue.Submit(1, &commands);
+    }
+
+
+
+    
     std::string readFile(const std::string& path) {
         std::ifstream f(path);
         if (!f.is_open()) {
