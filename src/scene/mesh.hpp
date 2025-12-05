@@ -61,8 +61,14 @@ public:
 
         for(int i = 0; i < vertices_raw.size(); i+=3){
             
-            vertices[i/3] = {{vertices_raw[i], vertices_raw[i+1], vertices_raw[i+2]},
-                           {colors_raw[i]  , colors_raw[i+1]  , colors_raw[i+2]}};
+            float r = 0.5f, g = 0.5f, b = 0.5f;  // default gray
+            if (!colors_raw.empty()) {
+                r = colors_raw[i];
+                g = colors_raw[i + 1];
+                b = colors_raw[i + 2];
+            }
+            vertices[i / 3] = {{vertices_raw[i], vertices_raw[i + 1], vertices_raw[i + 2]},
+                               {r, g, b}};
         }
 
         std::vector<uint16_t> indices;

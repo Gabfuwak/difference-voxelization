@@ -29,7 +29,7 @@ public:
     // Uniform buffer for MVP matrix
     wgpu::Buffer uniformBuffer;
 
-    bool wireframeMode = true;
+    bool wireframeMode = false;
 
     Renderer(Context* ctx, uint32_t width, uint32_t height) 
         : ctx(ctx), width(width), height(height) {

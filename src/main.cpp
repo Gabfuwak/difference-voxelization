@@ -21,31 +21,118 @@ int main() {
     wgpu::Texture depthTexture = renderer.createDepthTexture();
     wgpu::TextureView depthView = depthTexture.CreateView();
 
-    // Create meshes (shared)
-    auto suzanneMesh = std::make_shared<scene::Mesh>(
-        scene::Mesh::createMesh("models/Suzanne.obj", ctx.device, ctx.queue));
-    auto terrainMesh = std::make_shared<scene::Mesh>(
-        scene::Mesh::createGridPlane(ctx.device, ctx.queue));
 
-    // Create scene objects
-    std::vector<scene::SceneObject> objects = {
-        {terrainMesh, scene::Transform()},
-        {suzanneMesh, scene::Transform()},
+
+    // Terrain - 500m x 500m
+    auto terrainMesh = std::make_shared<scene::Mesh>(
+        scene::Mesh::createGridPlane(ctx.device, ctx.queue, 500.0f, 50));
+
+    // Meshes
+    auto houseMesh = std::make_shared<scene::Mesh>(
+        scene::Mesh::createMesh("models/house.obj", ctx.device, ctx.queue));
+    auto treeMesh = std::make_shared<scene::Mesh>(
+        scene::Mesh::createMesh("models/MapleTree.obj", ctx.device, ctx.queue));
+
+    std::vector<scene::SceneObject> objects;
+
+    // Terrain at origin
+    objects.push_back({terrainMesh, scene::Transform()});
+
+
+    // Create drone mesh (cube scaled to 50cm)
+    auto droneMesh = std::make_shared<scene::Mesh>(
+        scene::Mesh::createCube(ctx.device, ctx.queue));
+
+    scene::Transform droneTransform;
+        droneTransform.scale = Eigen::Vector3f(0.5f, 0.5f, 0.5f);
+        objects.push_back({droneMesh, droneTransform});
+
+    size_t droneIndex = objects.size() - 1;  // remember index for animation
+
+    // House - left side
+    scene::Transform houseTransform;
+    houseTransform.position = Eigen::Vector3f(-150.0f, 0.0f, 0.0f);
+    objects.push_back({houseMesh, houseTransform});
+
+    // Tree helper lambda
+    auto addTree = [&](float x, float z) {
+        scene::Transform t;
+        t.position = Eigen::Vector3f(x, 0.0f, z);
+        //t.scale = Eigen::Vector3f(10.0f, 10.0f, 10.0f);
+        objects.push_back({treeMesh, t});
     };
 
+    // Top-left cluster (behind house)
+    addTree(-180.0f, -80.0f);
+    addTree(-160.0f, -100.0f);
+    addTree(-140.0f, -70.0f);
+    addTree(-190.0f, -110.0f);
+
+    // Top-right trees
+    addTree(100.0f, -90.0f);
+    addTree(130.0f, -70.0f);
+
+    // Bottom-right cluster
+    addTree(120.0f, 80.0f);
+    addTree(140.0f, 100.0f);
+    addTree(100.0f, 110.0f);
+    addTree(160.0f, 90.0f);
+    addTree(130.0f, 130.0f);
+    
     std::vector<scene::Camera> cameras;
 
-    scene::Camera cam1(800.0f / 600.0f);
-    cam1.position = {2.0f, 2.0f, 3.0f};
-    cameras.push_back(cam1);
+    auto makeCamera = [](Eigen::Vector3f pos, Eigen::Vector3f target) {
+        scene::Camera cam(800.0f / 600.0f);
+        cam.position = pos;
+        cam.target = target;
+        cam.farPlane = 1000.0f;
+        return cam;
+    };
 
-    scene::Camera cam2(800.0f / 600.0f);
-    cam2.position = {-2.0f, 2.0f, 3.0f};
-    cameras.push_back(cam2);
+    // Height: 2m (human eye level), looking up so 80% sky
+    // Positions at edges, ~200m out from center
+
+    // Bottom camera (south edge, looking north + up)
+    cameras.push_back(makeCamera(
+        {0.0f, 2.0f, 200.0f},
+        {0.0f, 80.0f, -100.0f}
+    ));
+
+    // Left camera (west edge, looking east + up)
+    cameras.push_back(makeCamera(
+        {-200.0f, 2.0f, 0.0f},
+        {100.0f, 80.0f, 0.0f}
+    ));
+
+    // Top camera (north edge, looking south + up)
+    cameras.push_back(makeCamera(
+        {0.0f, 2.0f, -200.0f},
+        {0.0f, 80.0f, 100.0f}
+    ));
+
+    // Right camera (east edge, looking west + up)
+    cameras.push_back(makeCamera(
+        {200.0f, 2.0f, 0.0f},
+        {-100.0f, 80.0f, 0.0f}
+    ));
+    float time = 0.0f;
 
     while (true) {
-        // Rotate suzanne (index 1)
-        objects[1].transform.rotate(0.016f * 0.5f, Eigen::Vector3f::UnitY());
+        time += 0.016f;
+
+        // Drone flies in circle: 50m radius, 30m height
+        float radius = 50.0f;
+        float height = 30.0f;
+        float speed = 2.f;  // radians per second
+        
+        objects[droneIndex].transform.position = Eigen::Vector3f(
+            radius * std::cos(time * speed),
+            height,
+            radius * std::sin(time * speed)
+        );
+        
+        // Optional: rotate drone to face direction of travel
+        objects[droneIndex].transform.setEulerAngles(0.0f, -time * speed, 0.0f);
 
         for (size_t i = 0; i < cameras.size(); ++i) {
             renderer.renderScene(objects, cameras[i], depthView);
