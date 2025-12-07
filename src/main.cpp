@@ -5,6 +5,7 @@
 #include "core/context.hpp"
 #include "core/renderer.hpp"
 #include "scene/scene_object.hpp"
+#include "vision/detect_object.hpp"
 #include <opencv2/opencv.hpp>
 
 int main() {
@@ -117,31 +118,70 @@ int main() {
     ));
     float time = 0.0f;
 
+    std::vector<cv::Mat> previous_frames;  // Same index as cameras
+    previous_frames.resize(cameras.size());
+
     while (true) {
         time += 0.016f;
 
         // Drone flies in circle: 50m radius, 30m height
         float radius = 50.0f;
         float height = 30.0f;
-        float speed = 2.f;  // radians per second
-        
+        float speed = 2.f;
+
         objects[droneIndex].transform.position = Eigen::Vector3f(
             radius * std::cos(time * speed),
             height,
             radius * std::sin(time * speed)
         );
-        
-        // Optional: rotate drone to face direction of travel
+
         objects[droneIndex].transform.setEulerAngles(0.0f, -time * speed, 0.0f);
 
+        // Build frames with previous frame data
+        std::vector<CameraFrame> frames;
         for (size_t i = 0; i < cameras.size(); ++i) {
             renderer.renderScene(objects, cameras[i], depthView);
-            cv::Mat frame = renderer.captureFrame();
-            cv::imshow("Camera " + std::to_string(i), frame);
+            cv::Mat curr_frame = renderer.captureFrame();
+            cv::imshow("Camera " + std::to_string(i), curr_frame);
+            
+            frames.push_back({
+                cameras[i], 
+                curr_frame, // shallow copy
+                previous_frames[i].empty() ? curr_frame : previous_frames[i]  // use current on first frame
+            });
+            
+            previous_frames[i] = curr_frame;
+        }
+        
+        Voxel target_zone = Voxel{{0., 0., 0.}, // center
+                                   250.};       // half size
+
+        float min_voxel_size = 0.2; // cube is 0.5 large
+        size_t min_ray_threshold = 3; // at least 3 rays for detection
+        auto detections = detect_objects(target_zone, frames, min_voxel_size, min_ray_threshold);
+
+
+        std::cout << "Frame " << time << " - Detections: " << detections.size() << std::endl;
+        if (!detections.empty()) {
+            Eigen::Vector3d centroid(0, 0, 0);
+            for (const auto& det : detections) {
+                centroid += det.center;
+            }
+            centroid /= detections.size();
+            
+            std::cout << "  Detection centroid: ("
+                      << centroid.x() << ", "
+                      << centroid.y() << ", "
+                      << centroid.z() << ")" << std::endl;
         }
 
-        if (cv::waitKey(1) == 27) break;
+        std::cout << "Actual drone position: (" 
+                  << objects[droneIndex].transform.position.x() << ", "
+                  << objects[droneIndex].transform.position.y() << ", "
+                  << objects[droneIndex].transform.position.z() << ")" << std::endl;
+        std::cout << "---" << std::endl;
 
+        if (cv::waitKey(1) == 27) break;
         ctx.processEvents();
     }
 
