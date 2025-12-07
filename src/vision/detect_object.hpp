@@ -115,18 +115,14 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
 
                 // We only keep the rays that interact with this child for optimisation
                 std::vector<Ray> child_rays;
+                std::unordered_set<int> child_cameras;
                 for (const auto ray : candidate_rays) {
                     if (rayIntersectsVoxel(ray, child)) {
                         child_rays.push_back(ray);
+                        child_cameras.insert(ray.camera_id);
                     }
                 }
                 
-                // Only recurse if the child has rays from enough different cameras
-                std::unordered_set<int> child_cameras;
-                for (const auto ray : child_rays) {
-                    child_cameras.insert(ray.camera_id);
-                }
-
                 // Only recurse if the child is a potential detection
                 if (child_cameras.size() >= min_ray_threshold) {
                     recursive_detection(child, child_rays, min_voxel_size, min_ray_threshold, detections);
