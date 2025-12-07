@@ -117,6 +117,8 @@ int main() {
         {-100.0f, 80.0f, 0.0f}
     ));
     float time = 0.0f;
+    double avg_detection_time = 0.0;
+    int frame_count = 0;
 
     std::vector<cv::Mat> previous_frames;  // Same index as cameras
     previous_frames.resize(cameras.size());
@@ -156,9 +158,20 @@ int main() {
         Voxel target_zone = Voxel{{0., 0., 0.}, // center
                                    250.};       // half size
 
-        float min_voxel_size = 0.2; // cube is 0.5 large
+        float min_voxel_size = 0.8; // cube is 0.5 large
         size_t min_ray_threshold = 3; // at least 3 rays for detection
+
+        
+        auto start = std::chrono::high_resolution_clock::now();
         auto detections = detect_objects(target_zone, frames, min_voxel_size, min_ray_threshold);
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+
+        frame_count++;
+        avg_detection_time += (duration.count() - avg_detection_time) / frame_count;
+        std::cout << "Detection time: " << duration.count() << " µs (avg: " 
+                  << avg_detection_time << " µs)" << std::endl;
 
 
         std::cout << "Frame " << time << " - Detections: " << detections.size() << std::endl;

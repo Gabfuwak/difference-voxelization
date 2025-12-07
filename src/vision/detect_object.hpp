@@ -5,6 +5,7 @@
 #include "core/renderer.hpp"
 #include <Eigen/Dense>
 #include <vector>
+#include <unordered_set>
 
 
 struct Voxel {
@@ -84,7 +85,7 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
     float current_size = target_zone.half_size * 2.0;
     if (current_size <= min_voxel_size) {
         // count intersecting rays
-        std::set<int> unique_cameras;
+        std::unordered_set<int> unique_cameras;
         for (auto ray : candidate_rays) {
             if (rayIntersectsVoxel(ray, target_zone)) {
                 unique_cameras.insert(ray.camera_id);
@@ -114,15 +115,15 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
 
                 // We only keep the rays that interact with this child for optimisation
                 std::vector<Ray> child_rays;
-                for (const auto& ray : candidate_rays) {
+                for (const auto ray : candidate_rays) {
                     if (rayIntersectsVoxel(ray, child)) {
                         child_rays.push_back(ray);
                     }
                 }
                 
                 // Only recurse if the child has rays from enough different cameras
-                std::set<int> child_cameras;
-                for (const auto& ray : child_rays) {
+                std::unordered_set<int> child_cameras;
+                for (const auto ray : child_rays) {
                     child_cameras.insert(ray.camera_id);
                 }
 
@@ -170,17 +171,14 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
         cv::Mat binary;
         int threshold = 5;
         cv::threshold(diff, binary, threshold, 255, cv::THRESH_BINARY);
-        // In detect_objects, add after threshold:
-        cv::imshow("Camera " + std::to_string(&frame - &camera_frames[0]) + " Diff", binary);
+        //cv::imshow("Camera " + std::to_string(&frame - &camera_frames[0]) + " Diff", binary);
 
     // Get camera rays from all pixels where movement is detected by the temporal image difference
         std::vector<std::pair<float, float>> movement_pixels;
-        for (int y = 0; y < binary.rows; ++y) {
-            for (int x = 0; x < binary.cols; ++x) {
-                if (binary.at<uchar>(y, x) > 0) {
-                    movement_pixels.push_back({static_cast<float>(x), static_cast<float>(y)});
-                }
-            }
+        std::vector<cv::Point> points;
+        cv::findNonZero(binary, points);
+        for (const auto& pt : points) {
+            movement_pixels.push_back({static_cast<float>(pt.x), static_cast<float>(pt.y)});
         }
 
         auto rays = generateRays(frame.camera, movement_pixels, 
@@ -189,6 +187,7 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
     }
 
 
+    /*
     std::cout << "Total rays generated: " << all_rays.size() << std::endl;
 
     // Check how many pixels detected movement per camera
@@ -202,6 +201,7 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
         std::cout << "Camera movement pixels: " << movement_count << std::endl;
         total_movement_pixels += movement_count;
     }
+    */
 
     // populate detections
     recursive_detection(target_zone, all_rays, min_voxel_size, min_ray_threshold, detections);
