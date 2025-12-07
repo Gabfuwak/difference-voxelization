@@ -155,8 +155,8 @@ int main() {
             previous_frames[i] = curr_frame;
         }
         
-        Voxel target_zone = Voxel{{0., 0., 0.}, // center
-                                   250.};       // half size
+        Voxel target_zone = Voxel{{0.f, 0.f, 0.f}, // center
+                                   250.f};       // half size
 
         float min_voxel_size = 0.8; // cube is 0.5 large
         size_t min_ray_threshold = 3; // at least 3 rays for detection
@@ -176,7 +176,7 @@ int main() {
 
         std::cout << "Frame " << time << " - Detections: " << detections.size() << std::endl;
         if (!detections.empty()) {
-            Eigen::Vector3d centroid(0, 0, 0);
+            Eigen::Vector3f centroid(0, 0, 0);
             for (const auto& det : detections) {
                 centroid += det.center;
             }

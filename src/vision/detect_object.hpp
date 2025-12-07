@@ -9,7 +9,7 @@
 
 
 struct Voxel {
-    Eigen::Vector3d center;
+    Eigen::Vector3f center;
     float half_size;
 };
 
@@ -105,7 +105,7 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
         for(int y = 0; y<2; ++y){
             for(int z = 0; z<2; ++z){
                 // 0 is the negative direction, 1 is the positive direction
-                Eigen::Vector3d offset(
+                Eigen::Vector3f offset(
                     (x == 0) ? -new_half_size : new_half_size,
                     (y == 0) ? -new_half_size : new_half_size,
                     (z == 0) ? -new_half_size : new_half_size
