@@ -1,11 +1,14 @@
 #include <iostream>
+#include <sstream>
 #include <vector>
 #include <GLFW/glfw3.h>
 
 #include "core/context.hpp"
 #include "core/renderer.hpp"
+#include "core/window.hpp"
 #include "scene/scene_object.hpp"
 #include "vision/detect_object.hpp"
+#include "webgpu/webgpu_cpp.h"
 #include <opencv2/opencv.hpp>
 
 int main() {
@@ -123,7 +126,13 @@ int main() {
     std::vector<CameraFrame> frames(cameras.size());
     std::vector<cv::Mat> previous_frames(cameras.size());  // Same index as cameras
 
-    while (true) {
+    core::Window debugWindow(800, 600, "Debug");
+    debugWindow.create();
+    debugWindow.createSurface(ctx.instance, ctx.adapter, ctx.device);
+
+    while (!debugWindow.shouldClose()) {
+        glfwPollEvents();
+
         time += 0.016f;
 
         // Drone flies in circle: 50m radius, 30m height
@@ -140,7 +149,6 @@ int main() {
         objects[droneIndex].transform.setEulerAngles(0.0f, -time * speed, 0.0f);
 
         // Build frames with previous frame data
-        // std::vector<CameraFrame> frames;
         for (size_t i = 0; i < cameras.size(); ++i) {
             renderer.renderScene(objects, cameras[i], depthView);
             cv::Mat curr_frame = renderer.captureFrame();
@@ -154,7 +162,10 @@ int main() {
 
             previous_frames[i] = curr_frame;
         }
-        
+
+        // renderer.renderScene(objects, cameras[0], depthView, debugWindow.getCurrentTextureView());
+        // debugWindow.present();
+
         Voxel target_zone = Voxel{{0.f, 0.f, 0.f}, // center
                                    250.f};       // half size
 
@@ -170,11 +181,14 @@ int main() {
 
         frame_count++;
         avg_detection_time += (duration.count() - avg_detection_time) / frame_count;
-        std::cout << "Detection time: " << duration.count() << " µs (avg: "
+
+        std::ostringstream oss;
+
+        oss << "Detection time: " << duration.count() << " µs (avg: "
                   << avg_detection_time << " µs)" << std::endl;
 
 
-        std::cout << "Frame " << time << " - Detections: " << detections.size() << std::endl;
+        oss << "Frame " << time << " - Detections: " << detections.size() << std::endl;
         if (!detections.empty()) {
             Eigen::Vector3f centroid(0, 0, 0);
             for (const auto& det : detections) {
@@ -182,19 +196,31 @@ int main() {
             }
             centroid /= detections.size();
 
-            std::cout << "  Detection centroid: ("
+            oss << "  Detection centroid: ("
                       << centroid.x() << ", "
                       << centroid.y() << ", "
                       << centroid.z() << ")" << std::endl;
         }
 
-        std::cout << "Actual drone position: ("
+        oss << "Actual drone position: ("
                   << objects[droneIndex].transform.position.x() << ", "
                   << objects[droneIndex].transform.position.y() << ", "
                   << objects[droneIndex].transform.position.z() << ")" << std::endl;
-        std::cout << "---" << std::endl;
+        oss << "---" << std::endl;
+
+        // std::cout << oss.str();
 
         if (cv::waitKey(1) == 27) break;
+
+        // wgpu::CommandEncoderDescriptor commandEncoderDesc {.label = "copy"};
+        // auto commandEncoder = ctx.device.CreateCommandEncoder(&commandEncoderDesc);
+        // wgpu::TexelCopyTextureInfo source {.texture = renderer.targetTexture};
+        // wgpu::TexelCopyTextureInfo destination {.texture = debugWindow.getCurrentTexture()};
+        // wgpu::Extent3D copySize {800, 600};
+        // commandEncoder.CopyTextureToTexture(&source, &destination, &copySize);
+        // std::array commands {commandEncoder.Finish()};
+        // ctx.queue.Submit(commands.size(), commands.data());
+
         ctx.processEvents();
     }
 

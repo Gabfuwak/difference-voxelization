@@ -1,8 +1,10 @@
 #pragma once
 
+#include <iostream>
 #include <string>
 #include <GLFW/glfw3.h>
 #include <webgpu/webgpu_cpp.h>
+#include <webgpu/webgpu_cpp_print.h>
 #include <webgpu/webgpu_glfw.h>
 
 namespace core {
@@ -24,19 +26,22 @@ public:
         if (!glfwInit()) {
             return false;
         }
-        
+
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         handle = glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr);
+        setCallbacks();
+
         return handle != nullptr;
     }
 
     void createSurface(wgpu::Instance instance, wgpu::Adapter adapter, wgpu::Device device) {
         surface = wgpu::glfw::CreateSurfaceForWindow(instance, handle);
-        
+
         wgpu::SurfaceCapabilities capabilities;
         surface.GetCapabilities(adapter, &capabilities);
         format = capabilities.formats[0];
-        
+        std::cout << "Using format: " << format << '\n';
+
         configureSurface(device);
     }
 
@@ -69,11 +74,32 @@ public:
         return surfaceTexture.texture.CreateView();
     }
 
+    wgpu::Texture getCurrentTexture() {
+        wgpu::SurfaceTexture surfaceTexture;
+        surface.GetCurrentTexture(&surfaceTexture);
+        return surfaceTexture.texture;
+    }
+
     ~Window() {
         if (handle) {
             glfwDestroyWindow(handle);
             glfwTerminate();
         }
+    }
+
+    void setCallbacks() {
+        auto closeShortcutsKeyCallback = [](GLFWwindow* window, int key, int scancode, int action, int mods) {
+            if (action != GLFW_PRESS) {
+                return;
+            }
+            if (key == GLFW_KEY_W && (mods & GLFW_MOD_SUPER)) {
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
+            if (key == GLFW_KEY_C && (mods & GLFW_MOD_CONTROL)) {
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
+        };
+        glfwSetKeyCallback(handle, closeShortcutsKeyCallback);
     }
 };
 
