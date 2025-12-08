@@ -79,7 +79,7 @@ int main() {
     addTree(100.0f, 110.0f);
     addTree(160.0f, 90.0f);
     addTree(130.0f, 130.0f);
-    
+
     std::vector<scene::Camera> cameras;
 
     auto makeCamera = [](Eigen::Vector3f pos, Eigen::Vector3f target) {
@@ -120,8 +120,8 @@ int main() {
     double avg_detection_time = 0.0;
     int frame_count = 0;
 
-    std::vector<cv::Mat> previous_frames;  // Same index as cameras
-    previous_frames.resize(cameras.size());
+    std::vector<CameraFrame> frames(cameras.size());
+    std::vector<cv::Mat> previous_frames(cameras.size());  // Same index as cameras
 
     while (true) {
         time += 0.016f;
@@ -140,18 +140,18 @@ int main() {
         objects[droneIndex].transform.setEulerAngles(0.0f, -time * speed, 0.0f);
 
         // Build frames with previous frame data
-        std::vector<CameraFrame> frames;
+        // std::vector<CameraFrame> frames;
         for (size_t i = 0; i < cameras.size(); ++i) {
             renderer.renderScene(objects, cameras[i], depthView);
             cv::Mat curr_frame = renderer.captureFrame();
             cv::imshow("Camera " + std::to_string(i), curr_frame);
-            
-            frames.push_back({
-                cameras[i], 
+
+            frames[i] = {
+                cameras[i],
                 curr_frame, // shallow copy
                 previous_frames[i].empty() ? curr_frame : previous_frames[i]  // use current on first frame
-            });
-            
+            };
+
             previous_frames[i] = curr_frame;
         }
         
@@ -161,7 +161,7 @@ int main() {
         float min_voxel_size = 0.8; // cube is 0.5 large
         size_t min_ray_threshold = 3; // at least 3 rays for detection
 
-        
+
         auto start = std::chrono::high_resolution_clock::now();
         auto detections = detect_objects(target_zone, frames, min_voxel_size, min_ray_threshold);
 
@@ -170,7 +170,7 @@ int main() {
 
         frame_count++;
         avg_detection_time += (duration.count() - avg_detection_time) / frame_count;
-        std::cout << "Detection time: " << duration.count() << " µs (avg: " 
+        std::cout << "Detection time: " << duration.count() << " µs (avg: "
                   << avg_detection_time << " µs)" << std::endl;
 
 
@@ -181,14 +181,14 @@ int main() {
                 centroid += det.center;
             }
             centroid /= detections.size();
-            
+
             std::cout << "  Detection centroid: ("
                       << centroid.x() << ", "
                       << centroid.y() << ", "
                       << centroid.z() << ")" << std::endl;
         }
 
-        std::cout << "Actual drone position: (" 
+        std::cout << "Actual drone position: ("
                   << objects[droneIndex].transform.position.x() << ", "
                   << objects[droneIndex].transform.position.y() << ", "
                   << objects[droneIndex].transform.position.z() << ")" << std::endl;
