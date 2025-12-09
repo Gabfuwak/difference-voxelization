@@ -25,6 +25,9 @@ int main() {
     wgpu::Texture depthTexture = renderer.createDepthTexture();
     wgpu::TextureView depthView = depthTexture.CreateView();
 
+    auto defaultMaterial = std::make_shared<Material>(
+        Material::createUntextured(ctx.device, ctx.queue));
+    defaultMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout, renderer.uniformBuffer);
 
 
     // Terrain - 500m x 500m
@@ -34,13 +37,25 @@ int main() {
     // Meshes
     auto houseMesh = std::make_shared<scene::Mesh>(
         scene::Mesh::createMesh("models/house.obj", ctx.device, ctx.queue));
-    auto treeMesh = std::make_shared<scene::Mesh>(
-        scene::Mesh::createMesh("models/MapleTree.obj", ctx.device, ctx.queue));
+
+    // Tree stem (bark)
+    auto treeStemMesh = std::make_shared<scene::Mesh>(
+        scene::Mesh::createMesh("models/MapleTreeStem.obj", ctx.device, ctx.queue));
+    auto barkMaterial = std::make_shared<Material>(
+        Material::create(ctx.device, ctx.queue, "models/maple_bark.png"));
+    barkMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout, renderer.uniformBuffer);
+
+    // Tree leaves
+    auto treeLeavesMesh = std::make_shared<scene::Mesh>(
+        scene::Mesh::createMesh("models/MapleTreeLeaves.obj", ctx.device, ctx.queue));
+    auto leafMaterial = std::make_shared<Material>(
+        Material::create(ctx.device, ctx.queue, "models/maple_leaf.png"));
+    leafMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout, renderer.uniformBuffer);
 
     std::vector<scene::SceneObject> objects;
 
     // Terrain at origin
-    objects.push_back({terrainMesh, scene::Transform()});
+    objects.push_back({terrainMesh, scene::Transform(), defaultMaterial});
 
 
     // Create drone mesh (cube scaled to 50cm)
@@ -49,21 +64,22 @@ int main() {
 
     scene::Transform droneTransform;
         droneTransform.scale = Eigen::Vector3f(0.5f, 0.5f, 0.5f);
-        objects.push_back({droneMesh, droneTransform});
+        objects.push_back({droneMesh, droneTransform, defaultMaterial});
 
     size_t droneIndex = objects.size() - 1;  // remember index for animation
 
     // House - left side
     scene::Transform houseTransform;
     houseTransform.position = Eigen::Vector3f(-150.0f, 0.0f, 0.0f);
-    objects.push_back({houseMesh, houseTransform});
+    objects.push_back({houseMesh, houseTransform, defaultMaterial});
 
     // Tree helper lambda
     auto addTree = [&](float x, float z) {
         scene::Transform t;
         t.position = Eigen::Vector3f(x, 0.0f, z);
-        //t.scale = Eigen::Vector3f(10.0f, 10.0f, 10.0f);
-        objects.push_back({treeMesh, t});
+        
+        objects.push_back({treeStemMesh, t, barkMaterial});   // stem
+        objects.push_back({treeLeavesMesh, t, leafMaterial}); // leaves
     };
 
     // Top-left cluster (behind house)
@@ -102,6 +118,8 @@ int main() {
         {0.0f, 80.0f, -100.0f}
     ));
 
+    addTree(0.0f, 180.0f);
+
     // Left camera (west edge, looking east + up)
     cameras.push_back(makeCamera(
         {-200.0f, 2.0f, 0.0f},
@@ -121,6 +139,7 @@ int main() {
     ));
     float time = 0.0f;
     double avg_detection_time = 0.0;
+    double total_error = 0.0;
     int frame_count = 0;
 
     std::vector<CameraFrame> frames(cameras.size());
@@ -131,6 +150,7 @@ int main() {
     debugWindow.createSurface(ctx.instance, ctx.adapter, ctx.device);
 
     while (!debugWindow.shouldClose()) {
+    //while (time <= 0.02) {
         glfwPollEvents();
 
         time += 0.016f;
@@ -200,15 +220,25 @@ int main() {
                       << centroid.x() << ", "
                       << centroid.y() << ", "
                       << centroid.z() << ")" << std::endl;
-        }
 
-        oss << "Actual drone position: ("
+            auto error = (centroid - objects[droneIndex].transform.position).norm();
+            total_error += error;
+            oss << "Error: " << error << "(avg:"<< total_error / frame_count<<" )" << std::endl;
+
+
+
+            oss << "Actual drone position:("
                   << objects[droneIndex].transform.position.x() << ", "
                   << objects[droneIndex].transform.position.y() << ", "
                   << objects[droneIndex].transform.position.z() << ")" << std::endl;
+        }
+
+
+
+
         oss << "---" << std::endl;
 
-        // std::cout << oss.str();
+        std::cout << oss.str();
 
         if (cv::waitKey(1) == 27) break;
 

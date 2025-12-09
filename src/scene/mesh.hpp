@@ -8,10 +8,10 @@
 
 
 namespace scene {
-
 struct Vertex {
     float position[3];
     float color[3];
+    float uv[2];
 };
 
 class Mesh {
@@ -55,6 +55,7 @@ public:
         auto& shapes = reader.GetShapes();
         std::vector<float> vertices_raw = attrib.vertices;
         std::vector<float> colors_raw = attrib.colors;
+        std::vector<float> texcoords_raw = attrib.texcoords;  // NEW: UV coordinates from OBJ
 
         std::vector<Vertex> vertices;
         vertices.resize(vertices_raw.size()/3);
@@ -67,16 +68,30 @@ public:
                 g = colors_raw[i + 1];
                 b = colors_raw[i + 2];
             }
-            vertices[i / 3] = {{vertices_raw[i], vertices_raw[i + 1], vertices_raw[i + 2]},
-                               {r, g, b}};
+            
+            // Default UVs if not present in file
+            float u = 0.0f, v = 0.0f;
+            
+            vertices[i / 3] = {
+                {vertices_raw[i], vertices_raw[i + 1], vertices_raw[i + 2]},
+                {r, g, b},
+                {u, v}  // Will be overwritten below if texcoords exist
+            };
         }
 
+        // Extract indices and UVs
         std::vector<uint16_t> indices;
         for (const auto& idx : shapes[0].mesh.indices) {
-            indices.push_back(static_cast<uint16_t>(idx.vertex_index));
+            uint16_t vertex_idx = static_cast<uint16_t>(idx.vertex_index);
+            indices.push_back(vertex_idx);
+            
+            // If texture coordinates exist, update the vertex
+            if (idx.texcoord_index >= 0 && !texcoords_raw.empty()) {
+                int uv_idx = idx.texcoord_index * 2;
+                vertices[vertex_idx].uv[0] = texcoords_raw[uv_idx];
+                vertices[vertex_idx].uv[1] = texcoords_raw[uv_idx + 1];
+            }
         }
-
-
 
         Mesh mesh;
         mesh.upload(device, queue, vertices, indices);
@@ -87,41 +102,42 @@ public:
     static Mesh createCube(wgpu::Device device, wgpu::Queue queue) {
         // Each face has its own vertices for distinct face colors
         std::vector<Vertex> vertices = {
-            // Front face (red) - z = 0.5
-            {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.3f, 0.3f}},
-            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.3f, 0.3f}},
-            {{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.3f, 0.3f}},
-            {{-0.5f,  0.5f,  0.5f}, {1.0f, 0.3f, 0.3f}},
+            // Front face (red) - looking at +Z
+            // Position                  Color                UV
+            {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.3f, 0.3f}, {0.0f, 0.0f}}, // bottom-left
+            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.3f, 0.3f}, {1.0f, 0.0f}}, // bottom-right
+            {{ 0.5f,  0.5f,  0.5f}, {1.0f, 0.3f, 0.3f}, {1.0f, 1.0f}}, // top-right
+            {{-0.5f,  0.5f,  0.5f}, {1.0f, 0.3f, 0.3f}, {0.0f, 1.0f}}, // top-left
 
-            // Back face (cyan) - z = -0.5
-            {{ 0.5f, -0.5f, -0.5f}, {0.3f, 1.0f, 1.0f}},
-            {{-0.5f, -0.5f, -0.5f}, {0.3f, 1.0f, 1.0f}},
-            {{-0.5f,  0.5f, -0.5f}, {0.3f, 1.0f, 1.0f}},
-            {{ 0.5f,  0.5f, -0.5f}, {0.3f, 1.0f, 1.0f}},
+            // Back face (cyan) - looking at -Z
+            {{ 0.5f, -0.5f, -0.5f}, {0.3f, 1.0f, 1.0f}, {0.0f, 0.0f}}, // bottom-left (from back view)
+            {{-0.5f, -0.5f, -0.5f}, {0.3f, 1.0f, 1.0f}, {1.0f, 0.0f}}, // bottom-right
+            {{-0.5f,  0.5f, -0.5f}, {0.3f, 1.0f, 1.0f}, {1.0f, 1.0f}}, // top-right
+            {{ 0.5f,  0.5f, -0.5f}, {0.3f, 1.0f, 1.0f}, {0.0f, 1.0f}}, // top-left
 
-            // Top face (green) - y = 0.5
-            {{-0.5f,  0.5f,  0.5f}, {0.3f, 1.0f, 0.3f}},
-            {{ 0.5f,  0.5f,  0.5f}, {0.3f, 1.0f, 0.3f}},
-            {{ 0.5f,  0.5f, -0.5f}, {0.3f, 1.0f, 0.3f}},
-            {{-0.5f,  0.5f, -0.5f}, {0.3f, 1.0f, 0.3f}},
+            // Top face (green) - looking down at +Y
+            {{-0.5f,  0.5f,  0.5f}, {0.3f, 1.0f, 0.3f}, {0.0f, 0.0f}}, // bottom-left (front-left)
+            {{ 0.5f,  0.5f,  0.5f}, {0.3f, 1.0f, 0.3f}, {1.0f, 0.0f}}, // bottom-right (front-right)
+            {{ 0.5f,  0.5f, -0.5f}, {0.3f, 1.0f, 0.3f}, {1.0f, 1.0f}}, // top-right (back-right)
+            {{-0.5f,  0.5f, -0.5f}, {0.3f, 1.0f, 0.3f}, {0.0f, 1.0f}}, // top-left (back-left)
 
-            // Bottom face (magenta) - y = -0.5
-            {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.3f, 1.0f}},
-            {{ 0.5f, -0.5f, -0.5f}, {1.0f, 0.3f, 1.0f}},
-            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.3f, 1.0f}},
-            {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.3f, 1.0f}},
+            // Bottom face (magenta) - looking up at -Y
+            {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.3f, 1.0f}, {0.0f, 0.0f}}, // bottom-left (back-left)
+            {{ 0.5f, -0.5f, -0.5f}, {1.0f, 0.3f, 1.0f}, {1.0f, 0.0f}}, // bottom-right (back-right)
+            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.3f, 1.0f}, {1.0f, 1.0f}}, // top-right (front-right)
+            {{-0.5f, -0.5f,  0.5f}, {1.0f, 0.3f, 1.0f}, {0.0f, 1.0f}}, // top-left (front-left)
 
-            // Right face (yellow) - x = 0.5
-            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 0.3f}},
-            {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 0.3f}},
-            {{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 0.3f}},
-            {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 0.3f}},
+            // Right face (yellow) - looking at +X
+            {{ 0.5f, -0.5f,  0.5f}, {1.0f, 1.0f, 0.3f}, {0.0f, 0.0f}}, // bottom-left (front)
+            {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 0.3f}, {1.0f, 0.0f}}, // bottom-right (back)
+            {{ 0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 0.3f}, {1.0f, 1.0f}}, // top-right (back)
+            {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f, 0.3f}, {0.0f, 1.0f}}, // top-left (front)
 
-            // Left face (blue) - x = -0.5
-            {{-0.5f, -0.5f, -0.5f}, {0.3f, 0.3f, 1.0f}},
-            {{-0.5f, -0.5f,  0.5f}, {0.3f, 0.3f, 1.0f}},
-            {{-0.5f,  0.5f,  0.5f}, {0.3f, 0.3f, 1.0f}},
-            {{-0.5f,  0.5f, -0.5f}, {0.3f, 0.3f, 1.0f}},
+            // Left face (blue) - looking at -X
+            {{-0.5f, -0.5f, -0.5f}, {0.3f, 0.3f, 1.0f}, {0.0f, 0.0f}}, // bottom-left (back)
+            {{-0.5f, -0.5f,  0.5f}, {0.3f, 0.3f, 1.0f}, {1.0f, 0.0f}}, // bottom-right (front)
+            {{-0.5f,  0.5f,  0.5f}, {0.3f, 0.3f, 1.0f}, {1.0f, 1.0f}}, // top-right (front)
+            {{-0.5f,  0.5f, -0.5f}, {0.3f, 0.3f, 1.0f}, {0.0f, 1.0f}}, // top-left (back)
         };
 
         std::vector<uint16_t> indices = {
@@ -160,12 +176,17 @@ public:
                 float xPos = -halfSize + x * step;
                 float zPos = -halfSize + z * step;
                 
-                // Create a checkerboard or gradient color pattern
+                // UV coordinates: 0→1 across entire plane
+                float u = (float)x / divisions;  // 0.0 at left edge, 1.0 at right edge
+                float v = (float)z / divisions;  // 0.0 at front edge, 1.0 at back edge
+                
+                // Create a checkerboard color pattern (for debugging without texture)
                 float colorIntensity = ((x + z) % 2 == 0) ? 0.8f : 0.6f;
                 
                 vertices.push_back({
-                    {xPos, 0.0f, zPos},
-                    {colorIntensity, colorIntensity, colorIntensity}
+                    {xPos, 0.0f, zPos},                          // position
+                    {colorIntensity, colorIntensity, colorIntensity},  // color
+                    {u, v}                                       // UV
                 });
             }
         }

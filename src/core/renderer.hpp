@@ -24,7 +24,6 @@ public:
 
     wgpu::RenderPipeline pipeline;
     wgpu::BindGroupLayout bindGroupLayout;
-    wgpu::BindGroup bindGroup;
 
     // Uniform buffer for MVP matrix
     wgpu::Buffer uniformBuffer;
@@ -72,30 +71,30 @@ public:
         shaderDesc.nextInChain = &wgsl;
         wgpu::ShaderModule shaderModule = ctx->device.CreateShaderModule(&shaderDesc);
 
-        // Bind group layout - MVP matrix
-        wgpu::BindGroupLayoutEntry layoutEntry{};
-        layoutEntry.binding = 0;
-        layoutEntry.visibility = wgpu::ShaderStage::Vertex;
-        layoutEntry.buffer.type = wgpu::BufferBindingType::Uniform;
+
+        std::array<wgpu::BindGroupLayoutEntry, 3> layoutEntries{};
+
+        // Binding 0: MVP uniform
+        layoutEntries[0].binding = 0;
+        layoutEntries[0].visibility = wgpu::ShaderStage::Vertex;
+        layoutEntries[0].buffer.type = wgpu::BufferBindingType::Uniform;
+
+        // Binding 1: Texture
+        layoutEntries[1].binding = 1;
+        layoutEntries[1].visibility = wgpu::ShaderStage::Fragment;
+        layoutEntries[1].texture.sampleType = wgpu::TextureSampleType::Float;
+        layoutEntries[1].texture.viewDimension = wgpu::TextureViewDimension::e2D;
+
+        // Binding 2: Sampler
+        layoutEntries[2].binding = 2;
+        layoutEntries[2].visibility = wgpu::ShaderStage::Fragment;
+        layoutEntries[2].sampler.type = wgpu::SamplerBindingType::Filtering;
 
         wgpu::BindGroupLayoutDescriptor bindGroupLayoutDesc{};
-        bindGroupLayoutDesc.label = "Uniform bind group layout";
-        bindGroupLayoutDesc.entryCount = 1;
-        bindGroupLayoutDesc.entries = &layoutEntry;
+        bindGroupLayoutDesc.label = "Uniform + Texture bind group layout";
+        bindGroupLayoutDesc.entryCount = layoutEntries.size();
+        bindGroupLayoutDesc.entries = layoutEntries.data();
         bindGroupLayout = ctx->device.CreateBindGroupLayout(&bindGroupLayoutDesc);
-
-        // Bind group
-        wgpu::BindGroupEntry bindGroupEntry{};
-        bindGroupEntry.binding = 0;
-        bindGroupEntry.buffer = uniformBuffer;
-        bindGroupEntry.size = uniformBuffer.GetSize();
-
-        wgpu::BindGroupDescriptor bindGroupDesc{};
-        bindGroupDesc.label = "Uniform bind group";
-        bindGroupDesc.layout = bindGroupLayout;
-        bindGroupDesc.entryCount = 1;
-        bindGroupDesc.entries = &bindGroupEntry;
-        bindGroup = ctx->device.CreateBindGroup(&bindGroupDesc);
 
         // Pipeline layout
         wgpu::PipelineLayoutDescriptor pipelineLayoutDesc{};
@@ -105,7 +104,7 @@ public:
         auto pipelineLayout = ctx->device.CreatePipelineLayout(&pipelineLayoutDesc);
 
         // Vertex attributes: position (vec3f) + color (vec3f)
-        std::array<wgpu::VertexAttribute, 2> attributes{};
+        std::array<wgpu::VertexAttribute, 3> attributes{};  // Changed from 2 to 3
         attributes[0].format = wgpu::VertexFormat::Float32x3;
         attributes[0].offset = 0;
         attributes[0].shaderLocation = 0; // position
@@ -114,8 +113,12 @@ public:
         attributes[1].offset = 3 * sizeof(float);
         attributes[1].shaderLocation = 1; // color
 
+        attributes[2].format = wgpu::VertexFormat::Float32x2;  // NEW: UV is 2 floats
+        attributes[2].offset = 6 * sizeof(float);              // NEW: after pos + color
+        attributes[2].shaderLocation = 2;                      // NEW: location 2
+
         wgpu::VertexBufferLayout vertexBufferLayout{};
-        vertexBufferLayout.arrayStride = 6 * sizeof(float); // pos + color
+        vertexBufferLayout.arrayStride = 8 * sizeof(float); // pos + color + uv (was 6)
         vertexBufferLayout.stepMode = wgpu::VertexStepMode::Vertex;
         vertexBufferLayout.attributeCount = attributes.size();
         vertexBufferLayout.attributes = attributes.data();
@@ -183,12 +186,13 @@ public:
             Eigen::Matrix4f mvp = camera.getViewProjectionMatrix() * obj.transform.getMatrix();
             updateUniformBuffer(mvp.data(), sizeof(float) * 16);
 
-            // Draw (clear only on first object)
+            // Draw (pass material's bind group)
             render(obj.mesh->vertexBuffer, obj.mesh->indexBuffer,
-                   obj.mesh->indexCount, depthView, i == 0, targetView);
+                   obj.mesh->indexCount, depthView, i == 0, 
+                   obj.material->bindGroup,  // ADD THIS
+                   targetView);
         }
     }
-
 
 
     cv::Mat captureFrame() {
@@ -285,7 +289,7 @@ public:
 private:
 
     void render(wgpu::Buffer vertexBuffer, wgpu::Buffer indexBuffer,
-                uint32_t indexCount, wgpu::TextureView depthView, bool clear, wgpu::TextureView targetView = nullptr) {
+                uint32_t indexCount, wgpu::TextureView depthView, bool clear, wgpu::BindGroup materialBindGroup, wgpu::TextureView targetView = nullptr) {
 
         wgpu::TextureView colorView = targetView != nullptr ? targetView : targetTextureView;
 
@@ -310,7 +314,7 @@ private:
         wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPassDesc);
 
         pass.SetPipeline(pipeline);
-        pass.SetBindGroup(0, bindGroup);
+        pass.SetBindGroup(0, materialBindGroup);
         pass.SetVertexBuffer(0, vertexBuffer);
         pass.SetIndexBuffer(indexBuffer, wgpu::IndexFormat::Uint16);
         pass.DrawIndexed(indexCount);
