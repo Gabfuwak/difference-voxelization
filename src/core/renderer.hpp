@@ -72,7 +72,7 @@ public:
         wgpu::ShaderModule shaderModule = ctx->device.CreateShaderModule(&shaderDesc);
 
 
-        std::array<wgpu::BindGroupLayoutEntry, 3> layoutEntries{};
+        std::array<wgpu::BindGroupLayoutEntry, 4> layoutEntries{};
 
         // Binding 0: MVP uniform
         layoutEntries[0].binding = 0;
@@ -89,6 +89,12 @@ public:
         layoutEntries[2].binding = 2;
         layoutEntries[2].visibility = wgpu::ShaderStage::Fragment;
         layoutEntries[2].sampler.type = wgpu::SamplerBindingType::Filtering;
+
+        // Binding 3: Mask texture (NEW)
+        layoutEntries[3].binding = 3;
+        layoutEntries[3].visibility = wgpu::ShaderStage::Fragment;
+        layoutEntries[3].texture.sampleType = wgpu::TextureSampleType::Float;
+        layoutEntries[3].texture.viewDimension = wgpu::TextureViewDimension::e2D;
 
         wgpu::BindGroupLayoutDescriptor bindGroupLayoutDesc{};
         bindGroupLayoutDesc.label = "Uniform + Texture bind group layout";

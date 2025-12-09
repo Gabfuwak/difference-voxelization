@@ -18,6 +18,23 @@ int main() {
         return 1;
     }
 
+
+    // Create dummy mask texture (1x1 white)
+    wgpu::TextureDescriptor dummyMaskDesc{};
+    dummyMaskDesc.size = {1, 1, 1};
+    dummyMaskDesc.format = wgpu::TextureFormat::R8Unorm;
+    dummyMaskDesc.usage = wgpu::TextureUsage::TextureBinding | wgpu::TextureUsage::CopyDst;
+    wgpu::Texture dummyMaskTexture = ctx.device.CreateTexture(&dummyMaskDesc);
+
+    uint8_t whitePixel = 255;
+    wgpu::TexelCopyBufferLayout dummyLayout{};
+    dummyLayout.bytesPerRow = 1;
+    wgpu::TexelCopyTextureInfo destination{};
+    destination.texture = dummyMaskTexture;
+    wgpu::Extent3D writeSize{1, 1, 1};
+    ctx.queue.WriteTexture(&destination, &whitePixel, 1, &dummyLayout, &writeSize);
+    wgpu::TextureView dummyMaskView = dummyMaskTexture.CreateView();
+
     core::Renderer renderer(&ctx, 800, 600);
     renderer.createUniformBuffer(sizeof(float) * 16);
     renderer.createPipeline(SHADERS_DIR "unlit.wgsl");
@@ -27,7 +44,8 @@ int main() {
 
     auto defaultMaterial = std::make_shared<Material>(
         Material::createUntextured(ctx.device, ctx.queue));
-    defaultMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout, renderer.uniformBuffer);
+    defaultMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout, 
+                                    renderer.uniformBuffer, dummyMaskView);
 
 
     // Terrain - 500m x 500m
@@ -43,14 +61,19 @@ int main() {
         scene::Mesh::createMesh("models/MapleTreeStem.obj", ctx.device, ctx.queue));
     auto barkMaterial = std::make_shared<Material>(
         Material::create(ctx.device, ctx.queue, "models/maple_bark.png"));
-    barkMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout, renderer.uniformBuffer);
+    barkMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout, 
+                             renderer.uniformBuffer, dummyMaskView);
 
     // Tree leaves
     auto treeLeavesMesh = std::make_shared<scene::Mesh>(
         scene::Mesh::createMesh("models/MapleTreeLeaves.obj", ctx.device, ctx.queue));
+    
     auto leafMaterial = std::make_shared<Material>(
-        Material::create(ctx.device, ctx.queue, "models/maple_leaf.png"));
-    leafMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout, renderer.uniformBuffer);
+    Material::create(ctx.device, ctx.queue, 
+                        "models/maple_leaf.png", 
+                        "models/maple_leaf_Mask.png")); // Add mask!
+    leafMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout, 
+                                 renderer.uniformBuffer, dummyMaskView);
 
     std::vector<scene::SceneObject> objects;
 
