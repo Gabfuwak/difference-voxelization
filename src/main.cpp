@@ -7,6 +7,7 @@
 #include "core/renderer.hpp"
 #include "core/window.hpp"
 #include "scene/scene_object.hpp"
+#include "scene/insect_swarm.hpp"
 #include "vision/detect_object.hpp"
 #include "webgpu/webgpu_cpp.h"
 #include <opencv2/opencv.hpp>
@@ -160,10 +161,23 @@ int main() {
         {200.0f, 2.0f, 0.0f},
         {-100.0f, 80.0f, 0.0f}
     ));
+
+
+    auto insectMesh = std::make_shared<scene::Mesh>(scene::Mesh::createCube(ctx.device, ctx.queue));
+
+    std::vector<scene::InsectSwarm> swarms;
+    for (const auto& cam : cameras) {
+        swarms.emplace_back(cam, 10, 2.0f, 1.0f, 2.0f, 0.5f, insectMesh, defaultMaterial);
+    }
+
+
+
     float time = 0.0f;
     double avg_detection_time = 0.0;
     double total_error = 0.0;
     int frame_count = 0;
+
+
 
     std::vector<CameraFrame> frames(cameras.size());
     std::vector<cv::Mat> previous_frames(cameras.size());  // Same index as cameras
@@ -189,11 +203,21 @@ int main() {
             radius * std::sin(time * speed)
         );
 
+
         objects[droneIndex].transform.setEulerAngles(0.0f, -time * speed, 0.0f);
+
+
+        for (auto& swarm : swarms) {
+            swarm.update();
+        }
 
         // Build frames with previous frame data
         for (size_t i = 0; i < cameras.size(); ++i) {
-            renderer.renderScene(objects, cameras[i], depthView);
+            std::vector<scene::SceneObject> toRender = objects;
+            const auto& insectObjects = swarms[i].getObjects();
+            toRender.insert(toRender.end(), insectObjects.begin(), insectObjects.end());
+            
+            renderer.renderScene(toRender, cameras[i], depthView);
             cv::Mat curr_frame = renderer.captureFrame();
             cv::imshow("Camera " + std::to_string(i), curr_frame);
 
