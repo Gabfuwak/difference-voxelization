@@ -26,6 +26,7 @@ target_include_directories(main PRIVATE
 target_link_libraries(main PRIVATE
     webgpu_dawn
     webgpu_glfw
+    webgpu_imgui
     glfw
     Eigen3::Eigen
     ${OpenCV_LIBS}

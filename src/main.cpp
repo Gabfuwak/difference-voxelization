@@ -9,8 +9,14 @@
 #include "scene/scene_object.hpp"
 #include "scene/observation_camera.hpp"
 #include "vision/detect_object.hpp"
+#include "webgpu/webgpu.h"
 #include "webgpu/webgpu_cpp.h"
 #include <opencv2/opencv.hpp>
+
+#include "utils.hpp"
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_wgpu.h"
 
 int main() {
     core::Context ctx;
@@ -45,7 +51,7 @@ int main() {
 
     auto defaultMaterial = std::make_shared<Material>(
         Material::createUntextured(ctx.device, ctx.queue));
-    defaultMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout, 
+    defaultMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout,
                                     renderer.uniformBuffer, dummyMaskView);
 
 
@@ -62,18 +68,18 @@ int main() {
         scene::Mesh::createMesh("models/MapleTreeStem.obj", ctx.device, ctx.queue));
     auto barkMaterial = std::make_shared<Material>(
         Material::create(ctx.device, ctx.queue, "models/maple_bark.png"));
-    barkMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout, 
+    barkMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout,
                              renderer.uniformBuffer, dummyMaskView);
 
     // Tree leaves
     auto treeLeavesMesh = std::make_shared<scene::Mesh>(
         scene::Mesh::createMesh("models/MapleTreeLeaves.obj", ctx.device, ctx.queue));
-    
+
     auto leafMaterial = std::make_shared<Material>(
-    Material::create(ctx.device, ctx.queue, 
-                        "models/maple_leaf.png", 
+    Material::create(ctx.device, ctx.queue,
+                        "models/maple_leaf.png",
                         "models/maple_leaf_Mask.png")); // Add mask!
-    leafMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout, 
+    leafMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout,
                                  renderer.uniformBuffer, dummyMaskView);
 
     std::vector<scene::SceneObject> objects;
@@ -101,7 +107,7 @@ int main() {
     auto addTree = [&](float x, float z) {
         scene::Transform t;
         t.position = Eigen::Vector3f(x, 0.0f, z);
-        
+
         objects.push_back({treeStemMesh, t, barkMaterial});   // stem
         objects.push_back({treeLeavesMesh, t, leafMaterial}); // leaves
     };
@@ -165,6 +171,17 @@ int main() {
     debugWindow.create();
     debugWindow.createSurface(ctx.instance, ctx.adapter, ctx.device);
 
+    // Initialize ImGui
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGui_ImplGlfw_InitForOther(debugWindow.handle, true);
+    ImGui_ImplWGPU_InitInfo info;
+    info.Device = ctx.device.Get();
+    info.NumFramesInFlight = 3;
+    info.RenderTargetFormat = static_cast<WGPUTextureFormat>(debugWindow.format);
+    info.DepthStencilFormat = static_cast<WGPUTextureFormat>(wgpu::TextureFormat::Undefined);
+    ImGui_ImplWGPU_Init(&info);
+
     while (!debugWindow.shouldClose()) {
     //while (time <= 0.02) {
         glfwPollEvents();
@@ -199,8 +216,13 @@ int main() {
                 "Camera " + std::to_string(i)
             ));
         }
-        // renderer.renderScene(objects, cameras[0], depthView, debugWindow.getCurrentTextureView());
-        // debugWindow.present();
+
+        // renderer.renderScene(objects, observers[0].getCamera(), depthView, debugWindow.getCurrentTextureView());
+        // renderer.clear()
+        auto surfaceTextureView = debugWindow.getCurrentTextureView();
+        // renderer.clear(surfaceTextureView);
+        renderer.renderImgui(surfaceTextureView);
+        debugWindow.present();
 
         Voxel target_zone = Voxel{{0.f, 0.f, 0.f}, // center
                                    250.f};       // half size

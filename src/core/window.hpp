@@ -18,6 +18,8 @@ public:
 
     wgpu::Surface surface;
     wgpu::TextureFormat format;
+    uint32_t surfaceWidth;
+    uint32_t surfaceHeight;
 
     Window(uint32_t width, uint32_t height, const std::string& title)
         : width(width), height(height), title(title) {}
@@ -46,11 +48,16 @@ public:
     }
 
     void configureSurface(wgpu::Device device) {
-        wgpu::SurfaceConfiguration config{
+        int fbWidth, fbHeight;
+        glfwGetFramebufferSize(handle, &fbWidth, &fbHeight);
+        surfaceWidth = static_cast<uint32_t>(fbWidth);
+        surfaceHeight = static_cast<uint32_t>(fbHeight);
+
+        wgpu::SurfaceConfiguration config {
             .device = device,
             .format = format,
-            .width = width,
-            .height = height,
+            .width = surfaceWidth,
+            .height = surfaceHeight,
             .presentMode = wgpu::PresentMode::Fifo,
         };
         surface.Configure(&config);

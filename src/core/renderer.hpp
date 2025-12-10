@@ -8,6 +8,10 @@
 #include "scene/scene_object.hpp"
 #include "scene/camera.hpp"
 
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_wgpu.h"
+
 #include "context.hpp"
 
 namespace core {
@@ -20,7 +24,7 @@ public:
 
     wgpu::Texture targetTexture;
     wgpu::TextureView targetTextureView;
-    wgpu::TextureFormat format = wgpu::TextureFormat::RGBA8Unorm;
+    wgpu::TextureFormat format = wgpu::TextureFormat::BGRA8Unorm;
 
     wgpu::RenderPipeline pipeline;
     wgpu::BindGroupLayout bindGroupLayout;
@@ -194,7 +198,7 @@ public:
 
             // Draw (pass material's bind group)
             render(obj.mesh->vertexBuffer, obj.mesh->indexBuffer,
-                   obj.mesh->indexCount, depthView, i == 0, 
+                   obj.mesh->indexCount, depthView, i == 0,
                    obj.material->bindGroup,  // ADD THIS
                    targetView);
         }
@@ -290,6 +294,54 @@ public:
         cv::cvtColor(image, bgr, cv::COLOR_RGBA2BGR);
 
         return bgr;
+    }
+
+    void clear(wgpu::TextureView targetView) {
+        auto commandEncoder = ctx->device.CreateCommandEncoder();
+        wgpu::RenderPassColorAttachment colorAttachment {
+            .view =  targetView,
+            .loadOp = wgpu::LoadOp::Clear,
+            .storeOp = wgpu::StoreOp::Store,
+            .clearValue = {0.5, 0.5, 0.5, 1},
+        };
+
+        wgpu::RenderPassDescriptor passDesc {
+            .colorAttachmentCount = 1,
+            .colorAttachments = &colorAttachment,
+        };
+        auto pass = commandEncoder.BeginRenderPass(&passDesc);
+        pass.End();
+
+        auto command = commandEncoder.Finish();
+        ctx->queue.Submit(1, &command);
+    }
+
+    void renderImgui(wgpu::TextureView targetView, bool clear = false) {
+        ImGui_ImplGlfw_NewFrame();
+        ImGui_ImplWGPU_NewFrame();
+        ImGui::NewFrame();
+        bool showDemoWindow = true;
+        ImGui::ShowDemoWindow(&showDemoWindow);
+
+        auto commandEncoder = ctx->device.CreateCommandEncoder();
+        wgpu::RenderPassColorAttachment colorAttachment {
+            .view = targetView,
+            .loadOp = clear ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load,
+            .storeOp = wgpu::StoreOp::Store,
+            .clearValue = {0.5, 0.5, 0, 1},
+        };
+
+        wgpu::RenderPassDescriptor passDesc {
+            .colorAttachmentCount = 1,
+            .colorAttachments = &colorAttachment,
+        };
+        auto pass = commandEncoder.BeginRenderPass(&passDesc);
+        ImGui::Render();
+        ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), pass.Get());
+        pass.End();
+
+        auto command = commandEncoder.Finish();
+        ctx->queue.Submit(1, &command);
     }
 
 private:
