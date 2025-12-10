@@ -28,6 +28,14 @@ struct CameraFrame {
 };
 
 
+struct DetectionStats {
+    size_t ray_count = 0;
+    size_t nodes_visited = 0;
+    size_t intersection_checks = 0;
+    size_t total_depth = 0;
+    std::vector<size_t> checks_per_depth = std::vector<size_t>(30, 0);
+};
+
 
 
 std::vector<Ray> generateRays(const scene::Camera& camera, 
@@ -80,8 +88,10 @@ bool rayIntersectsVoxel(const Ray& ray, const Voxel& voxel) {
  *
  *
  */
-void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, float min_voxel_size, size_t min_ray_threshold, std::vector<Voxel>& detections){
+void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, float min_voxel_size, size_t min_ray_threshold, std::vector<Voxel>& detections,DetectionStats& stats, int depth = 0){
 
+    stats.nodes_visited++;
+    stats.total_depth += depth;
 
     // If we reached target size, make final detection
     float current_size = target_zone.half_size * 2.0;
@@ -90,6 +100,7 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
         detections.push_back(target_zone);
         return;
     }
+
     // Separate into 8 smaller voxels
     float new_half_size = target_zone.half_size / 2.0;
     for(int x = 0; x<2; ++x){
@@ -108,6 +119,8 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
                 std::vector<Ray> child_rays;
                 std::unordered_set<int> child_cameras;
                 for (const auto ray : candidate_rays) {
+                    stats.intersection_checks++;
+                    stats.checks_per_depth[depth]++;
                     if (rayIntersectsVoxel(ray, child)) {
                         child_rays.push_back(ray);
                         child_cameras.insert(ray.camera_id);
@@ -116,7 +129,7 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
                 
                 // Only recurse if the child is a potential detection
                 if (child_cameras.size() >= min_ray_threshold) {
-                    recursive_detection(child, child_rays, min_voxel_size, min_ray_threshold, detections);
+                    recursive_detection(child, child_rays, min_voxel_size, min_ray_threshold, detections, stats, depth+1);
                 }
             }
         }
@@ -142,6 +155,7 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
 
     std::vector<Ray> all_rays;
     std::vector<Voxel> detections;
+    DetectionStats stats;
 
     for (size_t cam_idx = 0; cam_idx < camera_frames.size(); ++cam_idx) {
         const auto& frame = camera_frames[cam_idx];
@@ -171,6 +185,7 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
         auto rays = generateRays(frame.camera, movement_pixels, 
                                 frame.current_frame.cols, frame.current_frame.rows, cam_idx);
         all_rays.insert(all_rays.end(), rays.begin(), rays.end());
+        stats.ray_count = all_rays.size();
     }
 
 
@@ -191,7 +206,19 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
     */
 
     // populate detections
-    recursive_detection(target_zone, all_rays, min_voxel_size, min_ray_threshold, detections);
+    recursive_detection(target_zone, all_rays, min_voxel_size, min_ray_threshold, detections, stats, 0);
+
+
+    double avg_depth = stats.nodes_visited > 0 ? static_cast<double>(stats.total_depth) / stats.nodes_visited : 0.0;
+    std::cout << "Rays: " << stats.ray_count << " | Nodes: " << stats.nodes_visited << " | Intersections: " << stats.intersection_checks << "\n";
+    std::cout << "Avg depth: " << avg_depth << " | Detections: " << detections.size() << "\n";
+    std::cout << "Checks by depth: ";
+    for (size_t i = 0; i < stats.checks_per_depth.size(); ++i) {
+        if (stats.checks_per_depth[i] > 0) {
+            std::cout << i << ":" << stats.checks_per_depth[i] << " ";
+        }
+    }
+    std::cout << "\n";
 
     return detections;
 
