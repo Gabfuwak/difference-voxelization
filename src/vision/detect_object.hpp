@@ -86,19 +86,8 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
     // If we reached target size, make final detection
     float current_size = target_zone.half_size * 2.0;
     if (current_size <= min_voxel_size) {
-        // count intersecting rays
-        std::unordered_set<int> unique_cameras;
-        for (auto ray : candidate_rays) {
-            if (rayIntersectsVoxel(ray, target_zone)) {
-                unique_cameras.insert(ray.camera_id);
-            }
-
-        }
-        
-        // if enough rays from different cameras hit, this is a true detection
-        if (unique_cameras.size() >= min_ray_threshold) {
-            detections.push_back(target_zone);
-        }
+        // No need to check ray voxel intersection because if it wasn't intersecting the recursion would not be called on this voxel
+        detections.push_back(target_zone);
         return;
     }
     // Separate into 8 smaller voxels
