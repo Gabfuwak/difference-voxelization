@@ -1,7 +1,9 @@
 #pragma once
 
 #include <fstream>
+#include <opencv2/core/mat.hpp>
 #include <sstream>
+#include <stdexcept>
 #include <vector>
 #include <dawn/webgpu_cpp.h>
 #include <opencv2/opencv.hpp>
@@ -20,7 +22,7 @@ public:
 
     wgpu::Texture targetTexture;
     wgpu::TextureView targetTextureView;
-    wgpu::TextureFormat format = wgpu::TextureFormat::RGBA8Unorm;
+    wgpu::TextureFormat format = wgpu::TextureFormat::BGRA8Unorm;
 
     wgpu::RenderPipeline pipeline;
     wgpu::BindGroupLayout bindGroupLayout;
@@ -189,7 +191,9 @@ public:
         }
     }
 
-
+    cv::Mat captureFrame(std::vector<wgpu::TextureView> textures) {
+        throw std::runtime_error("Not implemented");
+    }
 
     cv::Mat captureFrame() {
         // Calculate buffer size with padding

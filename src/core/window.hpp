@@ -19,6 +19,9 @@ public:
     wgpu::Surface surface;
     wgpu::TextureFormat format;
 
+    std::vector<GLFWkeyfun> keyCallbacks;
+    int activeView = 0;
+
     Window(uint32_t width, uint32_t height, const std::string& title)
         : width(width), height(height), title(title) {}
 
@@ -29,6 +32,7 @@ public:
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         handle = glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr);
+        glfwSetWindowUserPointer(handle, this);
         setCallbacks();
 
         return handle != nullptr;
@@ -87,6 +91,16 @@ public:
         }
     }
 
+    void addKeyCallback(GLFWkeyfun callback) {
+        keyCallbacks.push_back(callback);
+        glfwSetKeyCallback(handle, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
+            auto windowPtr = static_cast<Window*>(glfwGetWindowUserPointer(window));
+            for (auto cb : windowPtr->keyCallbacks) {
+                cb(window, key, scancode, action, mods);
+            }
+        });
+    }
+
     void setCallbacks() {
         auto closeShortcutsKeyCallback = [](GLFWwindow* window, int key, int scancode, int action, int mods) {
             if (action != GLFW_PRESS) {
@@ -99,7 +113,29 @@ public:
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
             }
         };
-        glfwSetKeyCallback(handle, closeShortcutsKeyCallback);
+        auto selectCameraKeyCallback = [](GLFWwindow* window, int key, int scancode, int action, int mods) {
+            auto windowPtr = static_cast<Window*>(glfwGetWindowUserPointer(window));
+            if (action != GLFW_PRESS) return;
+            if (key == GLFW_KEY_0) { // debug view
+                std::cout << "Debug view" << '\n';
+                windowPtr->activeView = 0;
+            }
+            if (key == GLFW_KEY_1) { // camera 1
+                std::cout << "Select camera 1" << '\n';
+                windowPtr->activeView = 1;
+
+            }
+            if (key == GLFW_KEY_2) { // camera 2
+                std::cout << "Select camera 2" << '\n';
+                windowPtr->activeView = 2;
+            }
+            if (key == GLFW_KEY_3) { // camera 3
+                std::cout << "Select camera 3" << '\n';
+                windowPtr->activeView = 3;
+            }
+        };
+        addKeyCallback(closeShortcutsKeyCallback);
+        addKeyCallback(selectCameraKeyCallback);
     }
 };
 

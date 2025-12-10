@@ -126,11 +126,11 @@ int main() {
     std::vector<CameraFrame> frames(cameras.size());
     std::vector<cv::Mat> previous_frames(cameras.size());  // Same index as cameras
 
-    core::Window debugWindow(800, 600, "Debug");
-    debugWindow.create();
-    debugWindow.createSurface(ctx.instance, ctx.adapter, ctx.device);
+    core::Window window(800, 600, "Debug");
+    window.create();
+    window.createSurface(ctx.instance, ctx.adapter, ctx.device);
 
-    while (!debugWindow.shouldClose()) {
+    while (!window.shouldClose()) {
         glfwPollEvents();
 
         time += 0.016f;
@@ -149,10 +149,11 @@ int main() {
         objects[droneIndex].transform.setEulerAngles(0.0f, -time * speed, 0.0f);
 
         // Build frames with previous frame data
+        double t0 = glfwGetTime();
         for (size_t i = 0; i < cameras.size(); ++i) {
             renderer.renderScene(objects, cameras[i], depthView);
             cv::Mat curr_frame = renderer.captureFrame();
-            cv::imshow("Camera " + std::to_string(i), curr_frame);
+            // cv::imshow("Camera " + std::to_string(i), curr_frame);
 
             frames[i] = {
                 cameras[i],
@@ -162,9 +163,16 @@ int main() {
 
             previous_frames[i] = curr_frame;
         }
+        double t1 = glfwGetTime();
+        std::cout << 1 / (t1 - t0) << '\n';
 
-        // renderer.renderScene(objects, cameras[0], depthView, debugWindow.getCurrentTextureView());
-        // debugWindow.present();
+        if (window.activeView != 0) {
+            renderer.renderScene(objects, cameras[window.activeView - 1], depthView, window.getCurrentTextureView());
+        } else {
+            window.activeView = 1;
+            // throw std::runtime_error("Not implemented");
+        }
+        window.present();
 
         Voxel target_zone = Voxel{{0.f, 0.f, 0.f}, // center
                                    250.f};       // half size
