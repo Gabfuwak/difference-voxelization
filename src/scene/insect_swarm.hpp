@@ -11,29 +11,33 @@
 
 namespace scene {
 
+struct InsectSwarmConfig {
+    int count = 50;
+    float distance = 3.0f;
+    float spread = 0.3f;
+    float zoneHalfSize = 2.0f;
+    float movementSpeed = 0.5f;
+};
+
 class InsectSwarm {
 public:
     InsectSwarm(const Camera& camera,
-                int count,
-                float distance,          // How far in front of camera
-                float spread,            // Initial spawn spread
-                float zoneHalfSize,      // Bounding box half-size
-                float movementSpeed,     // Horizontal movement magnitude
+                const InsectSwarmConfig& config,
                 std::shared_ptr<Mesh> mesh,
                 std::shared_ptr<Material> material)
-        : zoneHalfSize_(zoneHalfSize)
-        , movementSpeed_(movementSpeed)
+        : zoneHalfSize_(config.zoneHalfSize)
+        , movementSpeed_(config.movementSpeed)
         , rng_(std::random_device{}())
         , dist_(0.0f, 1.0f)
     {
         // Zone center: in front of camera
         Eigen::Vector3f forward = (camera.target - camera.position).normalized();
-        zoneCenter_ = camera.position + forward * distance;
+        zoneCenter_ = camera.position + forward * config.distance;
 
         // Spawn insects randomly within spread
-        std::uniform_real_distribution<float> spawnDist(-spread, spread);
+        std::uniform_real_distribution<float> spawnDist(-config.spread, config.spread);
 
-        for (int i = 0; i < count; ++i) {
+        for (int i = 0; i < config.count; ++i) {
             Transform t;
             t.position = zoneCenter_ + Eigen::Vector3f(
                 spawnDist(rng_), spawnDist(rng_), spawnDist(rng_)

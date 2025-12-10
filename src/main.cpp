@@ -7,7 +7,7 @@
 #include "core/renderer.hpp"
 #include "core/window.hpp"
 #include "scene/scene_object.hpp"
-#include "scene/insect_swarm.hpp"
+#include "scene/observation_camera.hpp"
 #include "vision/detect_object.hpp"
 #include "webgpu/webgpu_cpp.h"
 #include <opencv2/opencv.hpp>
@@ -123,52 +123,34 @@ int main() {
     addTree(160.0f, 90.0f);
     addTree(130.0f, 130.0f);
 
-    std::vector<scene::Camera> cameras;
+    // Height: 2m (human eye level), looking up so 80% sky
+    // Positions at edges, ~200m out from center
 
-    auto makeCamera = [](Eigen::Vector3f pos, Eigen::Vector3f target) {
+    auto insectMesh = std::make_shared<scene::Mesh>(scene::Mesh::createCube(ctx.device, ctx.queue));
+
+    scene::InsectSwarmConfig insectConfig{
+        .count = 10,
+        .distance = 2.0f,
+        .spread = 1.0f,
+        .zoneHalfSize = 2.0f,
+        .movementSpeed = 0.5f
+    };
+
+    auto makeObserver = [&](Eigen::Vector3f pos, Eigen::Vector3f target) {
         scene::Camera cam(800.0f / 600.0f);
         cam.position = pos;
         cam.target = target;
         cam.farPlane = 1000.0f;
-        return cam;
+        return scene::ObservationCamera(cam, insectConfig, insectMesh, defaultMaterial);
     };
 
-    // Height: 2m (human eye level), looking up so 80% sky
-    // Positions at edges, ~200m out from center
+    std::vector<scene::ObservationCamera> observers;
+    observers.push_back(makeObserver({0.0f, 2.0f, 200.0f}, {0.0f, 80.0f, -100.0f}));
+    addTree(0.0f, 180.0f); // in front of camera for occlusion
+    observers.push_back(makeObserver({-200.0f, 2.0f, 0.0f}, {100.0f, 80.0f, 0.0f}));
+    observers.push_back(makeObserver({0.0f, 2.0f, -200.0f}, {0.0f, 80.0f, 100.0f}));
+    observers.push_back(makeObserver({200.0f, 2.0f, 0.0f}, {-100.0f, 80.0f, 0.0f}));
 
-    // Bottom camera (south edge, looking north + up)
-    cameras.push_back(makeCamera(
-        {0.0f, 2.0f, 200.0f},
-        {0.0f, 80.0f, -100.0f}
-    ));
-
-    addTree(0.0f, 180.0f);
-
-    // Left camera (west edge, looking east + up)
-    cameras.push_back(makeCamera(
-        {-200.0f, 2.0f, 0.0f},
-        {100.0f, 80.0f, 0.0f}
-    ));
-
-    // Top camera (north edge, looking south + up)
-    cameras.push_back(makeCamera(
-        {0.0f, 2.0f, -200.0f},
-        {0.0f, 80.0f, 100.0f}
-    ));
-
-    // Right camera (east edge, looking west + up)
-    cameras.push_back(makeCamera(
-        {200.0f, 2.0f, 0.0f},
-        {-100.0f, 80.0f, 0.0f}
-    ));
-
-
-    auto insectMesh = std::make_shared<scene::Mesh>(scene::Mesh::createCube(ctx.device, ctx.queue));
-
-    std::vector<scene::InsectSwarm> swarms;
-    for (const auto& cam : cameras) {
-        swarms.emplace_back(cam, 10, 2.0f, 1.0f, 2.0f, 0.5f, insectMesh, defaultMaterial);
-    }
 
 
 
@@ -178,9 +160,6 @@ int main() {
     int frame_count = 0;
 
 
-
-    std::vector<CameraFrame> frames(cameras.size());
-    std::vector<cv::Mat> previous_frames(cameras.size());  // Same index as cameras
 
     core::Window debugWindow(800, 600, "Debug");
     debugWindow.create();
@@ -207,29 +186,19 @@ int main() {
         objects[droneIndex].transform.setEulerAngles(0.0f, -time * speed, 0.0f);
 
 
-        for (auto& swarm : swarms) {
-            swarm.update();
+
+        for (auto& observer : observers) {
+            observer.update();
         }
 
-        // Build frames with previous frame data
-        for (size_t i = 0; i < cameras.size(); ++i) {
-            std::vector<scene::SceneObject> toRender = objects;
-            const auto& insectObjects = swarms[i].getObjects();
-            toRender.insert(toRender.end(), insectObjects.begin(), insectObjects.end());
-            
-            renderer.renderScene(toRender, cameras[i], depthView);
-            cv::Mat curr_frame = renderer.captureFrame();
-            cv::imshow("Camera " + std::to_string(i), curr_frame);
-
-            frames[i] = {
-                cameras[i],
-                curr_frame, // shallow copy
-                previous_frames[i].empty() ? curr_frame : previous_frames[i]  // use current on first frame
-            };
-
-            previous_frames[i] = curr_frame;
+        std::vector<CameraFrame> frames;
+        frames.reserve(observers.size());
+        for (size_t i = 0; i < observers.size(); ++i) {
+            frames.push_back(observers[i].captureFrame(
+                renderer, objects, depthView,
+                "Camera " + std::to_string(i)
+            ));
         }
-
         // renderer.renderScene(objects, cameras[0], depthView, debugWindow.getCurrentTextureView());
         // debugWindow.present();
 

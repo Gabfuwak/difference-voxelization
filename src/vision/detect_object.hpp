@@ -1,3 +1,5 @@
+#pragma once
+
 #include <opencv2/opencv.hpp>
 #include <limits>
 #include "scene/scene_object.hpp"
