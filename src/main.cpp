@@ -131,9 +131,9 @@ int main() {
     scene::InsectSwarmConfig insectConfig{
         .count = 10,
         .distance = 2.0f,
-        .spread = 1.0f,
+        .spread = 3.0f,
         .zoneHalfSize = 2.0f,
-        .movementSpeed = 0.5f
+        .movementSpeed = 0.1f
     };
 
     auto makeObserver = [&](Eigen::Vector3f pos, Eigen::Vector3f target) {
@@ -205,7 +205,7 @@ int main() {
         Voxel target_zone = Voxel{{0.f, 0.f, 0.f}, // center
                                    250.f};       // half size
 
-        float min_voxel_size = 0.8; // cube is 0.5 large
+        float min_voxel_size = 0.2; // cube is 0.5 large
         size_t min_ray_threshold = 3; // at least 3 rays for detection
 
 

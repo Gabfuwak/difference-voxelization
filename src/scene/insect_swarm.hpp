@@ -27,7 +27,7 @@ public:
                 std::shared_ptr<Material> material)
         : zoneHalfSize_(config.zoneHalfSize)
         , movementSpeed_(config.movementSpeed)
-        , rng_(std::random_device{}())
+        , rng_(45)
         , dist_(0.0f, 1.0f)
     {
         // Zone center: in front of camera
@@ -42,7 +42,7 @@ public:
             t.position = zoneCenter_ + Eigen::Vector3f(
                 spawnDist(rng_), spawnDist(rng_), spawnDist(rng_)
             );
-            t.scale = Eigen::Vector3f(0.01f, 0.01f, 0.01f);
+            t.scale = Eigen::Vector3f(0.1f, 0.1f, 0.1f);
 
             insects_.push_back({mesh, t, material});
         }
