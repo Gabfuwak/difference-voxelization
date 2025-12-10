@@ -4,12 +4,10 @@ project(WebGpuDawnTemplate)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
 
-set(DAWN_FETCH_DEPENDENCIES ON)
-set(DAWN_BUILD_MONOLITHIC_LIBRARY STATIC)
-add_subdirectory("external/dawn" EXCLUDE_FROM_ALL)
+include(cmake/dawn.cmake)
+include(cmake/imgui.cmake)
 
 find_package(Eigen3 REQUIRED)
 find_package(OpenCV REQUIRED)
@@ -28,6 +26,7 @@ target_include_directories(main PRIVATE
 target_link_libraries(main PRIVATE
     webgpu_dawn
     webgpu_glfw
+    webgpu_imgui
     glfw
     Eigen3::Eigen
     ${OpenCV_LIBS}
