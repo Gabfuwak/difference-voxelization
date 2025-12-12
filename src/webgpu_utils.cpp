@@ -7,9 +7,13 @@
 #include <webgpu/webgpu_cpp_print.h>
 #include <spdlog/spdlog.h>
 #include <GLFW/glfw3.h>
+#include <stb_image.h>
+#include <image.hpp>
+#include <ranges>
 
 #include "webgpu_utils.hpp"
 #include "utils.hpp"
+#include "glfw_utils.hpp"
 
 using namespace wgpu;
 namespace fs = std::filesystem;
@@ -170,18 +174,27 @@ Surface createSurfaceWithPreferredFormat(
     surface.GetCapabilities(adapter, &capabilities);
     auto defaultFormat = capabilities.formats[0];
 
-    int fWidth, fHeight;
-    glfwGetFramebufferSize(window, &fWidth, &fHeight);
+    auto [width, height] = utils::getFramebufferSize(window);
 
     SurfaceConfiguration surfaceConfig {
         .device = device,
         .format = defaultFormat,
-        .width = static_cast<uint32_t>(fWidth),
-        .height = static_cast<uint32_t>(fHeight),
+        .width = width,
+        .height = height,
         .presentMode = PresentMode::Fifo,
     };
     surface.Configure(&surfaceConfig);
     return surface;
+}
+
+Texture createDepthTexture(Device& device, GLFWwindow* window, TextureFormat depthFormat) {
+    auto [width, height] = utils::getFramebufferSize(window);
+    TextureDescriptor depthTextureDesc {
+        .usage = TextureUsage::RenderAttachment,
+        .size = {width, height},
+        .format = depthFormat,
+    };
+    return device.CreateTexture(&depthTextureDesc);
 }
 
 Texture getSurfaceTexture(const Surface& surface) {
@@ -197,5 +210,105 @@ Texture getSurfaceTexture(const Surface& surface) {
 
     return surfaceTexture.texture;
 }
+
+wgpu::Texture loadTexture(Device& device, Queue& queue) {
+
+}
+
+// wgpu::Texture loadTextureCube(
+//     Device& device,
+//     Queue& queue,
+//     std::array<fs::path, 6> facePaths,
+//     TextureFormat format
+// ) {
+//     auto faceImages = facePaths
+//         | std::views::transform([](auto path) {return Image::load(path);})
+//         | std::ranges::to<std::vector>();
+
+//     int width = 0;
+//     int height = 0;
+//     constexpr uint32_t bytesPerPixel = 4;
+
+//     for (uint32_t layer = 0; layer < facePaths.size(); layer++) {
+//         auto absolutePath = resolveFacePath(facePaths[layer]);
+//         int faceWidth = 0;
+//         int faceHeight = 0;
+//         int channels = 0;
+//         stbi_uc* pixels = stbi_load(
+//             absolutePath.string().c_str(),
+//             &faceWidth,
+//             &faceHeight,
+//             &channels,
+//             bytesPerPixel
+//         );
+
+//         if (!pixels) {
+//             std::ostringstream oss;
+//             oss << "Failed to load cubemap face: " << absolutePath;
+//             throw std::runtime_error(oss.str());
+//         }
+
+//         if (!textureCreated) {
+//             width = faceWidth;
+//             height = faceHeight;
+
+//             TextureDescriptor desc {};
+//             desc.dimension = TextureDimension::e2D;
+//             desc.size = {
+//                 static_cast<uint32_t>(width),
+//                 static_cast<uint32_t>(height),
+//                 static_cast<uint32_t>(facePaths.size())
+//             };
+//             desc.format = format;
+//             desc.mipLevelCount = 1;
+//             desc.sampleCount = 1;
+//             desc.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
+//             desc.viewFormatCount = 1;
+//             desc.viewFormats = &format;
+
+//             cube.texture = device.CreateTexture(&desc);
+//             textureCreated = true;
+//         } else if (faceWidth != width || faceHeight != height) {
+//             stbi_image_free(pixels);
+//             throw std::runtime_error("Cubemap faces must share identical dimensions");
+//         }
+
+//         TexelCopyBufferLayout layout {};
+//         layout.bytesPerRow = static_cast<uint32_t>(width * bytesPerPixel);
+//         layout.rowsPerImage = static_cast<uint32_t>(height);
+
+//         TexelCopyTextureInfo destination {};
+//         destination.texture = cube.texture;
+//         destination.mipLevel = 0;
+//         destination.origin = {0, 0, layer};
+//         destination.aspect = TextureAspect::All;
+
+//         Extent3D copySize {
+//             static_cast<uint32_t>(width),
+//             static_cast<uint32_t>(height),
+//             1
+//         };
+
+//         queue.WriteTexture(
+//             &destination,
+//             pixels,
+//             width * height * bytesPerPixel,
+//             &layout,
+//             &copySize
+//         );
+//         stbi_image_free(pixels);
+//     }
+
+//     TextureViewDescriptor viewDesc {};
+//     viewDesc.dimension = TextureViewDimension::Cube;
+//     viewDesc.baseArrayLayer = 0;
+//     viewDesc.arrayLayerCount = facePaths.size();
+//     viewDesc.mipLevelCount = 1;
+//     viewDesc.aspect = TextureAspect::All;
+//     viewDesc.format = format;
+
+//     cube.view = cube.texture.CreateView(&viewDesc);
+//     return cube;
+// }
 
 }  // namespace utils

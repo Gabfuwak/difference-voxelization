@@ -30,7 +30,7 @@ public:
         view(0, 0) = r.x();  view(0, 1) = r.y();  view(0, 2) = r.z();
         view(1, 0) = u.x();  view(1, 1) = u.y();  view(1, 2) = u.z();
         view(2, 0) = -f.x(); view(2, 1) = -f.y(); view(2, 2) = -f.z();
-        
+
         view(0, 3) = -r.dot(position);
         view(1, 3) = -u.dot(position);
         view(2, 3) = f.dot(position);
@@ -61,18 +61,18 @@ public:
     void orbit(float deltaYaw, float deltaPitch) {
         Eigen::Vector3f offset = position - target;
         float radius = offset.norm();
-        
+
         // Current angles
         float yaw = std::atan2(offset.x(), offset.z());
         float pitch = std::asin(offset.y() / radius);
-        
+
         // Update angles
         yaw += deltaYaw;
         pitch += deltaPitch;
-        
+
         // Clamp pitch
         pitch = std::clamp(pitch, -1.5f, 1.5f);
-        
+
         // Convert back to position
         position.x() = target.x() + radius * std::cos(pitch) * std::sin(yaw);
         position.y() = target.y() + radius * std::sin(pitch);

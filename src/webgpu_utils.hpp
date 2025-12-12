@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <filesystem>
 #include <functional>
 
@@ -46,12 +47,23 @@ wgpu::ShaderModule loadShaderModule(
 );
 
 wgpu::Surface createSurfaceWithPreferredFormat(
-    wgpu::Device device,
+    wgpu::Device& device,
+    GLFWwindow* window
+);
+
+wgpu::Texture createDepthTexture(
+    wgpu::Device& device,
     GLFWwindow* window,
-    uint32_t width, uint32_t height,
-    wgpu::PresentMode presentMode = wgpu::PresentMode::Fifo
+    wgpu::TextureFormat depthFormat = wgpu::TextureFormat::Depth24Plus
 );
 
 wgpu::Texture getSurfaceTexture(const wgpu::Surface& surface);
+
+wgpu::Texture loadTextureCube(
+    wgpu::Device& device,
+    wgpu::Queue& queue,
+    const std::array<std::filesystem::path, 6>& facePaths,
+    wgpu::TextureFormat format = wgpu::TextureFormat::RGBA8Unorm
+);
 
 }  // namespace utils

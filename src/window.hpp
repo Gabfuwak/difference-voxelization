@@ -7,8 +7,6 @@
 #include <webgpu/webgpu_cpp_print.h>
 #include <webgpu/webgpu_glfw.h>
 
-namespace core {
-
 class Window {
 public:
     GLFWwindow* handle = nullptr;
@@ -17,9 +15,11 @@ public:
     std::string title;
 
     wgpu::Surface surface;
-    wgpu::TextureFormat format;
+    wgpu::TextureFormat surfaceFormat;
     uint32_t surfaceWidth;
     uint32_t surfaceHeight;
+
+    int activeCamera;
 
     Window(uint32_t width, uint32_t height, const std::string& title)
         : width(width), height(height), title(title) {}
@@ -41,8 +41,8 @@ public:
 
         wgpu::SurfaceCapabilities capabilities;
         surface.GetCapabilities(adapter, &capabilities);
-        format = capabilities.formats[0];
-        std::cout << "Using format: " << format << '\n';
+        surfaceFormat = capabilities.formats[0];
+        std::cout << "Using format: " << surfaceFormat << '\n';
 
         configureSurface(device);
     }
@@ -55,7 +55,7 @@ public:
 
         wgpu::SurfaceConfiguration config {
             .device = device,
-            .format = format,
+            .format = surfaceFormat,
             .width = surfaceWidth,
             .height = surfaceHeight,
             .presentMode = wgpu::PresentMode::Fifo,
@@ -95,19 +95,20 @@ public:
     }
 
     void setCallbacks() {
-        auto closeShortcutsKeyCallback = [](GLFWwindow* window, int key, int scancode, int action, int mods) {
-            if (action != GLFW_PRESS) {
-                return;
-            }
-            if (key == GLFW_KEY_W && (mods & GLFW_MOD_SUPER)) {
-                glfwSetWindowShouldClose(window, GLFW_TRUE);
-            }
-            if (key == GLFW_KEY_C && (mods & GLFW_MOD_CONTROL)) {
-                glfwSetWindowShouldClose(window, GLFW_TRUE);
-            }
-        };
-        glfwSetKeyCallback(handle, closeShortcutsKeyCallback);
+        glfwSetKeyCallback(handle, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
+            auto w = static_cast<Window*>(glfwGetWindowUserPointer(window));
+            w->keyCallback(key, scancode, action, mods);
+        });
+    }
+
+    void keyCallback(int key, int scancode, int action, int mods) {
+        switch (key) {
+        case GLFW_KEY_0:
+            activeCamera = 0;
+            break;
+        case GLFW_KEY_1:
+            activeCamera = 1;
+            break;
+        }
     }
 };
-
-} // namespace core

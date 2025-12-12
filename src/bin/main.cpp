@@ -3,14 +3,16 @@
 #include <vector>
 #include <GLFW/glfw3.h>
 
-#include "core/context.hpp"
-#include "core/renderer.hpp"
-#include "core/window.hpp"
-#include "scene/scene_object.hpp"
-#include "scene/observation_camera.hpp"
-#include "vision/detect_object.hpp"
+#include "context.hpp"
+#include "imgui_utils.hpp"
+#include "renderer.hpp"
+#include "window.hpp"
+#include "scene_object.hpp"
+#include "observation_camera.hpp"
+#include "detect_object.hpp"
 #include "webgpu/webgpu.h"
 #include "webgpu/webgpu_cpp.h"
+#include "glfw_utils.hpp"
 #include <opencv2/opencv.hpp>
 
 #include "utils.hpp"
@@ -19,14 +21,14 @@
 #include "imgui_impl_wgpu.h"
 
 int main() {
-    core::Context ctx;
+    WgpuContext ctx;
     if (!ctx.initialize()) {
         std::cerr << "Failed to initialize WebGPU context\n";
         return 1;
     }
 
 
-    // Create dummy mask texture (1x1 white)
+    // Create dummy mask texture (1x1 white) a
     wgpu::TextureDescriptor dummyMaskDesc{};
     dummyMaskDesc.size = {1, 1, 1};
     dummyMaskDesc.format = wgpu::TextureFormat::R8Unorm;
@@ -42,7 +44,12 @@ int main() {
     ctx.queue.WriteTexture(&destination, &whitePixel, 1, &dummyLayout, &writeSize);
     wgpu::TextureView dummyMaskView = dummyMaskTexture.CreateView();
 
-    core::Renderer renderer(&ctx, 800, 600);
+    Window debugWindow(800, 600, "Debug");
+    debugWindow.create();
+    debugWindow.createSurface(ctx.instance, ctx.adapter, ctx.device);
+
+    auto [width, height] = utils::getFramebufferSize(debugWindow.handle);
+    core::Renderer renderer(&ctx, width, height);
     renderer.createUniformBuffer(sizeof(float) * 16);
     renderer.createPipeline(SHADERS_DIR "unlit.wgsl");
 
@@ -61,24 +68,24 @@ int main() {
 
     // Meshes
     auto houseMesh = std::make_shared<scene::Mesh>(
-        scene::Mesh::createMesh("models/house.obj", ctx.device, ctx.queue));
+        scene::Mesh::createMesh(ASSETS_DIR "/house.obj", ctx.device, ctx.queue));
 
     // Tree stem (bark)
     auto treeStemMesh = std::make_shared<scene::Mesh>(
-        scene::Mesh::createMesh("models/MapleTreeStem.obj", ctx.device, ctx.queue));
+        scene::Mesh::createMesh(ASSETS_DIR "/MapleTreeStem.obj", ctx.device, ctx.queue));
     auto barkMaterial = std::make_shared<Material>(
-        Material::create(ctx.device, ctx.queue, "models/maple_bark.png"));
+        Material::create(ctx.device, ctx.queue, ASSETS_DIR "/maple_bark.png"));
     barkMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout,
                              renderer.uniformBuffer, dummyMaskView);
 
     // Tree leaves
     auto treeLeavesMesh = std::make_shared<scene::Mesh>(
-        scene::Mesh::createMesh("models/MapleTreeLeaves.obj", ctx.device, ctx.queue));
+        scene::Mesh::createMesh(ASSETS_DIR "/MapleTreeLeaves.obj", ctx.device, ctx.queue));
 
     auto leafMaterial = std::make_shared<Material>(
     Material::create(ctx.device, ctx.queue,
-                        "models/maple_leaf.png",
-                        "models/maple_leaf_Mask.png")); // Add mask!
+                        ASSETS_DIR "/maple_leaf.png",
+                        ASSETS_DIR "/maple_leaf_Mask.png")); // Add mask!
     leafMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout,
                                  renderer.uniformBuffer, dummyMaskView);
 
@@ -157,33 +164,16 @@ int main() {
     observers.push_back(makeObserver({0.0f, 2.0f, -200.0f}, {0.0f, 80.0f, 100.0f}));
     observers.push_back(makeObserver({200.0f, 2.0f, 0.0f}, {-100.0f, 80.0f, 0.0f}));
 
-
-
-
     float time = 0.0f;
     double avg_detection_time = 0.0;
     double total_error = 0.0;
     int frame_count = 0;
 
-
-
-    core::Window debugWindow(800, 600, "Debug");
-    debugWindow.create();
-    debugWindow.createSurface(ctx.instance, ctx.adapter, ctx.device);
-
     // Initialize ImGui
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGui_ImplGlfw_InitForOther(debugWindow.handle, true);
-    ImGui_ImplWGPU_InitInfo info;
-    info.Device = ctx.device.Get();
-    info.NumFramesInFlight = 3;
-    info.RenderTargetFormat = static_cast<WGPUTextureFormat>(debugWindow.format);
-    info.DepthStencilFormat = static_cast<WGPUTextureFormat>(wgpu::TextureFormat::Undefined);
-    ImGui_ImplWGPU_Init(&info);
+    utils::imguiInitialize(debugWindow.handle, ctx.device, debugWindow.surface);
 
     while (!debugWindow.shouldClose()) {
-    //while (time <= 0.02) {
+    //while (time <= 0.02) { //
         glfwPollEvents();
 
         time += 0.016f;
@@ -217,11 +207,12 @@ int main() {
             ));
         }
 
-        // renderer.renderScene(objects, observers[0].getCamera(), depthView, debugWindow.getCurrentTextureView());
-        // renderer.clear()
         auto surfaceTextureView = debugWindow.getCurrentTextureView();
-        // renderer.clear(surfaceTextureView);
-        renderer.renderImgui(surfaceTextureView);
+        if (debugWindow.activeCamera > 0) {
+            renderer.renderScene(objects, observers[0].getCamera(), depthView, surfaceTextureView);
+        } else {
+            renderer.renderImgui(surfaceTextureView);
+        }
         debugWindow.present();
 
         Voxel target_zone = Voxel{{0.f, 0.f, 0.f}, // center
@@ -245,7 +236,6 @@ int main() {
         oss << "Detection time: " << duration.count() << " µs (avg: "
                   << avg_detection_time << " µs)" << std::endl;
 
-
         oss << "Frame " << time << " - Detections: " << detections.size() << std::endl;
         if (!detections.empty()) {
             Eigen::Vector3f centroid(0, 0, 0);
@@ -262,8 +252,6 @@ int main() {
             auto error = (centroid - objects[droneIndex].transform.position).norm();
             total_error += error;
             oss << "Error: " << error << "(avg:"<< total_error / frame_count<<" )" << std::endl;
-
-
 
             oss << "Actual drone position:("
                   << objects[droneIndex].transform.position.x() << ", "

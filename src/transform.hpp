@@ -24,19 +24,19 @@ public:
     // Get the model matrix (scale -> rotate -> translate)
     Eigen::Matrix4f getMatrix() const {
         Eigen::Matrix4f mat = Eigen::Matrix4f::Identity();
-        
+
         // Apply scale
         mat(0, 0) = scale.x();
         mat(1, 1) = scale.y();
         mat(2, 2) = scale.z();
-        
+
         // Apply rotation
         Eigen::Matrix3f rotMat = rotation.toRotationMatrix();
         mat.block<3, 3>(0, 0) = rotMat * mat.block<3, 3>(0, 0);
-        
+
         // Apply translation
         mat.block<3, 1>(0, 3) = position;
-        
+
         return mat;
     }
 

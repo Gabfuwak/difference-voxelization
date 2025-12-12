@@ -5,20 +5,21 @@
 #include <vector>
 #include <dawn/webgpu_cpp.h>
 #include <opencv2/opencv.hpp>
-#include "scene/scene_object.hpp"
-#include "scene/camera.hpp"
+#include "scene_object.hpp"
+#include "camera.hpp"
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_wgpu.h"
 
 #include "context.hpp"
+#include "webgpu_utils.hpp"
 
 namespace core {
 
 class Renderer {
 public:
-    Context* ctx;
+    WgpuContext* ctx;
     uint32_t width;
     uint32_t height;
 
@@ -34,7 +35,7 @@ public:
 
     bool wireframeMode = false;
 
-    Renderer(Context* ctx, uint32_t width, uint32_t height)
+    Renderer(WgpuContext* ctx, uint32_t width, uint32_t height)
         : ctx(ctx), width(width), height(height) {
         createRenderTarget();
     }
@@ -177,6 +178,7 @@ public:
     }
 
     wgpu::Texture createDepthTexture() {
+
         wgpu::TextureDescriptor desc{};
         desc.label = "Depth texture";
         desc.usage = wgpu::TextureUsage::RenderAttachment;

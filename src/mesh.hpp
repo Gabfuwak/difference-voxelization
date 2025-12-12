@@ -1,11 +1,9 @@
 #pragma once
-#define TINYOBJLOADER_IMPLEMENTATION
 
 #include <vector>
 #include <webgpu/webgpu_cpp.h>
 #include "tiny_obj_loader.h"
 #include <ranges>
-
 
 namespace scene {
 struct Vertex {
@@ -23,7 +21,7 @@ public:
     void upload(wgpu::Device device, wgpu::Queue queue,
                 const std::vector<Vertex>& vertices,
                 const std::vector<uint16_t>& indices) {
-        
+
         indexCount = static_cast<uint32_t>(indices.size());
 
         // Create vertex buffer
@@ -61,17 +59,17 @@ public:
         vertices.resize(vertices_raw.size()/3);
 
         for(int i = 0; i < vertices_raw.size(); i+=3){
-            
+
             float r = 0.5f, g = 0.5f, b = 0.5f;  // default gray
             if (!colors_raw.empty()) {
                 r = colors_raw[i];
                 g = colors_raw[i + 1];
                 b = colors_raw[i + 2];
             }
-            
+
             // Default UVs if not present in file
             float u = 0.0f, v = 0.0f;
-            
+
             vertices[i / 3] = {
                 {vertices_raw[i], vertices_raw[i + 1], vertices_raw[i + 2]},
                 {r, g, b},
@@ -84,7 +82,7 @@ public:
         for (const auto& idx : shapes[0].mesh.indices) {
             uint16_t vertex_idx = static_cast<uint16_t>(idx.vertex_index);
             indices.push_back(vertex_idx);
-            
+
             // If texture coordinates exist, update the vertex
             if (idx.texcoord_index >= 0 && !texcoords_raw.empty()) {
                 int uv_idx = idx.texcoord_index * 2;
@@ -161,28 +159,28 @@ public:
     }
 
     // Factory method for a grid plane
-    static Mesh createGridPlane(wgpu::Device device, wgpu::Queue queue, 
+    static Mesh createGridPlane(wgpu::Device device, wgpu::Queue queue,
                                float size = 10.0f, int divisions = 10) {
         std::vector<Vertex> vertices;
         std::vector<uint16_t> indices;
-        
+
         // Calculate step size between grid lines
         float step = size / divisions;
         float halfSize = size / 2.0f;
-        
+
         // Generate vertices
         for (int z = 0; z <= divisions; ++z) {
             for (int x = 0; x <= divisions; ++x) {
                 float xPos = -halfSize + x * step;
                 float zPos = -halfSize + z * step;
-                
+
                 // UV coordinates: 0→1 across entire plane
                 float u = (float)x / divisions;  // 0.0 at left edge, 1.0 at right edge
                 float v = (float)z / divisions;  // 0.0 at front edge, 1.0 at back edge
-                
+
                 // Create a checkerboard color pattern (for debugging without texture)
                 float colorIntensity = ((x + z) % 2 == 0) ? 0.8f : 0.6f;
-                
+
                 vertices.push_back({
                     {xPos, 0.0f, zPos},                          // position
                     {colorIntensity, colorIntensity, colorIntensity},  // color
@@ -190,7 +188,7 @@ public:
                 });
             }
         }
-        
+
         // Generate indices for triangles
         for (int z = 0; z < divisions; ++z) {
             for (int x = 0; x < divisions; ++x) {
@@ -199,19 +197,19 @@ public:
                 uint16_t topRight = topLeft + 1;
                 uint16_t bottomLeft = (z + 1) * (divisions + 1) + x;
                 uint16_t bottomRight = bottomLeft + 1;
-                
+
                 // First triangle (top-left, bottom-left, top-right)
                 indices.push_back(topLeft);
                 indices.push_back(bottomLeft);
                 indices.push_back(topRight);
-                
+
                 // Second triangle (top-right, bottom-left, bottom-right)
                 indices.push_back(topRight);
                 indices.push_back(bottomLeft);
                 indices.push_back(bottomRight);
             }
         }
-        
+
         Mesh mesh;
         mesh.upload(device, queue, vertices, indices);
         return mesh;

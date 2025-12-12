@@ -2,13 +2,12 @@
 
 #include <opencv2/opencv.hpp>
 #include <limits>
-#include "scene/scene_object.hpp"
-#include "scene/camera.hpp"
-#include "core/renderer.hpp"
+#include "scene_object.hpp"
+#include "camera.hpp"
+#include "renderer.hpp"
 #include <Eigen/Dense>
 #include <vector>
 #include <unordered_set>
-
 
 struct Voxel {
     Eigen::Vector3f center;
@@ -38,26 +37,26 @@ struct DetectionStats {
 
 
 
-std::vector<Ray> generateRays(const scene::Camera& camera, 
+std::vector<Ray> generateRays(const scene::Camera& camera,
                                const std::vector<std::pair<float, float>>& pixels,
                                float screenWidth, float screenHeight, int camera_id) {
     Eigen::Matrix4f invViewProj = camera.getViewProjectionMatrix().inverse();
-    
+
     std::vector<Ray> rays;
     rays.reserve(pixels.size());
-    
+
     for (const auto& [pixelX, pixelY] : pixels) {
         // Convert to NDC
         float ndcX = (2.0f * pixelX) / screenWidth - 1.0f;
         float ndcY = 1.0f - (2.0f * pixelY) / screenHeight;
-        
+
         Eigen::Vector4f clipCoords(ndcX, ndcY, 1.0f, 1.0f);
         Eigen::Vector4f worldCoords = invViewProj * clipCoords;
         Eigen::Vector3f worldPoint = worldCoords.head<3>() / worldCoords.w();
-        
+
         rays.push_back({camera.position, (worldPoint - camera.position).normalized(), camera_id});
     }
-    
+
     return rays;
 }
 
@@ -65,19 +64,19 @@ std::vector<Ray> generateRays(const scene::Camera& camera,
 bool rayIntersectsVoxel(const Ray& ray, const Voxel& voxel) {
     float tmin = 0.0f;
     float tmax = std::numeric_limits<float>::infinity();
-    
+
     for (int i = 0; i < 3; ++i) {
         // Compute min and max from center + half_size
         float voxel_min = voxel.center[i] - voxel.half_size;
         float voxel_max = voxel.center[i] + voxel.half_size;
-        
+
         float t1 = (voxel_min - ray.origin[i]) / ray.direction[i];
         float t2 = (voxel_max - ray.origin[i]) / ray.direction[i];
-        
+
         tmin = std::max(tmin, std::min(t1, t2));
         tmax = std::min(tmax, std::max(t1, t2));
     }
-    
+
     return tmax >= tmin && tmax >= 0.0f;
 }
 
@@ -126,7 +125,7 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
                         child_cameras.insert(ray.camera_id);
                     }
                 }
-                
+
                 // Only recurse if the child is a potential detection
                 if (child_cameras.size() >= min_ray_threshold) {
                     recursive_detection(child, child_rays, min_voxel_size, min_ray_threshold, detections, stats, depth+1);
@@ -136,12 +135,12 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
     }
 }
 
-/** 
+/**
  * Returns a list of voxels in which there is a possible detection
  * Each returned voxel represents a quadrant of the initial voxel (octree)
  *
  * We cast a ray in the direction of all movements in the camera.
- * If multiple ray intersect with the same voxel, there is a detection in that voxel. 
+ * If multiple ray intersect with the same voxel, there is a detection in that voxel.
  * If we subdivide voxels enough, we will get a precise 3D location for the detection.
  *
  * Args:
@@ -182,7 +181,7 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
             movement_pixels.push_back({static_cast<float>(pt.x), static_cast<float>(pt.y)});
         }
 
-        auto rays = generateRays(frame.camera, movement_pixels, 
+        auto rays = generateRays(frame.camera, movement_pixels,
                                 frame.current_frame.cols, frame.current_frame.rows, cam_idx);
         all_rays.insert(all_rays.end(), rays.begin(), rays.end());
         stats.ray_count = all_rays.size();

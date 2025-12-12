@@ -5,8 +5,8 @@
 #include "camera.hpp"
 #include "insect_swarm.hpp"
 #include "scene_object.hpp"
-#include "core/renderer.hpp"
-#include "vision/detect_object.hpp"  // For CameraFrame
+#include "renderer.hpp"
+#include "detect_object.hpp"  // For CameraFrame
 
 namespace scene {
 

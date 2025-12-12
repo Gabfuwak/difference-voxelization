@@ -1,23 +1,29 @@
-@group(0) @binding(0) var<uniform> time: f32;
+const vertices = array(
+    vec2f(0, 0.5),
+    vec2f(-0.5, -0.5),
+    vec2f(0.5, -0.5)
+);
+
+const colors = array(
+    vec4f(1, 0, 0, 1),
+    vec4f(0, 1, 0, 1),
+    vec4f(0, 0, 1, 1),
+);
+
+struct VertexOut {
+    @builtin(position) position: vec4f,
+    @location(0) color: vec4f,
+};
 
 @vertex
-fn vert(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
-    const pos = array(
-        vec2f(0, 0.5),
-        vec2f(-0.5, -0.5),
-        vec2f(0.5, -0.5)
-    );
-    return vec4f(pos[i], 0, 1);
+fn vertexMain(@builtin(vertex_index) i: u32) -> VertexOut {
+    var out: VertexOut;
+    out.position = vec4f(vertices[i], 0, 1);
+    out.color = colors[i];
+    return out;
 }
 
 @fragment
-fn frag() -> @location(0) vec4f {
-    const tau = radians(180.0);
-    const a = vec3f(0.5, 0.5, 0.5);
-    const b = vec3f(0.5, 0.5, 0.5);
-    const c = vec3f(1.0, 1.0, 1.0);
-    const d = vec3f(0, 0.33, 0.67);
-    let t = time;
-
-    return vec4f(a + b * cos(tau * (c * t + d)), 1);
+fn fragmentMain(in: VertexOut) -> @location(0) vec4f {
+    return in.color;
 }
