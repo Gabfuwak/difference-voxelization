@@ -78,7 +78,7 @@ int main() {
     auto leafMaterial = std::make_shared<Material>(
     Material::create(ctx.device, ctx.queue,
                         "models/maple_leaf.png",
-                        "models/maple_leaf_Mask.png")); // Add mask!
+                        "models/maple_leaf_Mask.png"));
     leafMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout,
                                  renderer.uniformBuffer, dummyMaskView);
 
@@ -93,7 +93,7 @@ int main() {
         scene::Mesh::createCube(ctx.device, ctx.queue));
 
     scene::Transform droneTransform;
-        droneTransform.scale = Eigen::Vector3f(0.5f, 0.5f, 0.5f);
+        droneTransform.scale = Eigen::Vector3f(0.2f, 0.2f, 0.2f);
         objects.push_back({droneMesh, droneTransform, defaultMaterial});
 
     size_t droneIndex = objects.size() - 1;  // remember index for animation
@@ -135,11 +135,12 @@ int main() {
     auto insectMesh = std::make_shared<scene::Mesh>(scene::Mesh::createCube(ctx.device, ctx.queue));
 
     scene::InsectSwarmConfig insectConfig{
-        .count = 10,
+        .count = 0,
         .distance = 2.0f,
         .spread = 3.0f,
         .zoneHalfSize = 2.0f,
-        .movementSpeed = 0.1f
+        .movementSpeed = 0.1f,
+        .insectSize = 0.01f
     };
 
     auto makeObserver = [&](Eigen::Vector3f pos, Eigen::Vector3f target) {
@@ -151,11 +152,17 @@ int main() {
     };
 
     std::vector<scene::ObservationCamera> observers;
-    observers.push_back(makeObserver({0.0f, 2.0f, 200.0f}, {0.0f, 80.0f, -100.0f}));
-    addTree(0.0f, 180.0f); // in front of camera for occlusion
-    observers.push_back(makeObserver({-200.0f, 2.0f, 0.0f}, {100.0f, 80.0f, 0.0f}));
-    observers.push_back(makeObserver({0.0f, 2.0f, -200.0f}, {0.0f, 80.0f, 100.0f}));
-    observers.push_back(makeObserver({200.0f, 2.0f, 0.0f}, {-100.0f, 80.0f, 0.0f}));
+    
+    observers.push_back(makeObserver({0.0f, 2.0f, 200.0f}, {0.0f, 30.0f, 0.0f}));      // Center, eye level
+    observers.push_back(makeObserver({-60.0f, 2.0f, 191.0f}, {0.0f, 30.0f, 0.0f}));   // Left side
+    observers.push_back(makeObserver({60.0f, 2.0f, 191.0f}, {0.0f, 30.0f, 0.0f}));    // Right side
+    observers.push_back(makeObserver({0.0f, 15.0f, 199.0f}, {0.0f, 30.0f, 0.0f}));    // Higher up
+    observers.push_back(makeObserver({-30.0f, 8.0f, 197.0f}, {0.0f, 30.0f, 0.0f}));   // Off-center
+
+    // Optional: Add trees for some occlusion on this side
+    addTree(0.0f, 180.0f);
+    addTree(-40.0f, 175.0f);
+    addTree(40.0f, 175.0f);
 
 
 
@@ -227,7 +234,7 @@ int main() {
         Voxel target_zone = Voxel{{0.f, 0.f, 0.f}, // center
                                    250.f};       // half size
 
-        float min_voxel_size = 0.2; // cube is 0.5 large
+        float min_voxel_size = 0.02; // cube is 0.5 large
         size_t min_ray_threshold = 3; // at least 3 rays for detection
 
 
@@ -266,9 +273,17 @@ int main() {
 
 
             oss << "Actual drone position:("
-                  << objects[droneIndex].transform.position.x() << ", "
-                  << objects[droneIndex].transform.position.y() << ", "
-                  << objects[droneIndex].transform.position.z() << ")" << std::endl;
+                << objects[droneIndex].transform.position.x() << ", "
+                << objects[droneIndex].transform.position.y() << ", "
+                << objects[droneIndex].transform.position.z() << ")" << std::endl;
+
+            oss << "Camera distances: ";
+            for (size_t i = 0; i < observers.size(); ++i) {
+                float dist = (objects[droneIndex].transform.position - observers[i].getCamera().position).norm();
+                oss << dist << "m";
+                if (i < observers.size() - 1) oss << ", ";
+            }
+            oss << std::endl;
         }
 
 

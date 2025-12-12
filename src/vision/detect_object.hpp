@@ -19,6 +19,7 @@ struct Ray {
     Eigen::Vector3f origin;
     Eigen::Vector3f direction;
     int camera_id;
+    float pixel_angular_size; // angular size of the area this ray represents
 };
 
 
@@ -36,8 +37,34 @@ struct DetectionStats {
     size_t intersection_checks = 0;
     size_t total_depth = 0;
     std::vector<size_t> checks_per_depth = std::vector<size_t>(30, 0);
+    size_t rays_subdivided = 0;
+    size_t total_subrays_created = 0;
 };
 
+std::vector<Ray> subdivideRay(const Ray& ray) {
+    // Find orthogonal basis
+    Eigen::Vector3f perp = std::abs(ray.direction.z()) < 0.9f 
+        ? Eigen::Vector3f::UnitZ() 
+        : Eigen::Vector3f::UnitX();
+    
+    Eigen::Vector3f u = ray.direction.cross(perp).normalized();
+    Eigen::Vector3f v = ray.direction.cross(u);  // Already unit length
+    
+    float offset = ray.pixel_angular_size * 0.25f;
+    float new_size = ray.pixel_angular_size * 0.5f;
+    
+    std::vector<Ray> sub_rays(4);
+    int idx = 0;
+    
+    for (int i : {-1, 1}) {
+        for (int j : {-1, 1}) {
+            Eigen::Vector3f new_dir = ray.direction + (i * offset) * u + (j * offset) * v;
+            sub_rays[idx++] = {ray.origin, new_dir.normalized(), ray.camera_id, new_size};
+        }
+    }
+    
+    return sub_rays;
+}
 
 
 std::vector<Ray> generateRays(const scene::Camera& camera, 
@@ -48,6 +75,8 @@ std::vector<Ray> generateRays(const scene::Camera& camera,
     std::vector<Ray> rays;
     rays.reserve(pixels.size());
     
+    float fov_radians = camera.fov * (M_PI / 180.0f);
+    float pixel_angular_size = fov_radians / screenWidth;
     for (const auto& [pixelX, pixelY] : pixels) {
         // Convert to NDC
         float ndcX = (2.0f * pixelX) / screenWidth - 1.0f;
@@ -57,7 +86,7 @@ std::vector<Ray> generateRays(const scene::Camera& camera,
         Eigen::Vector4f worldCoords = invViewProj * clipCoords;
         Eigen::Vector3f worldPoint = worldCoords.head<3>() / worldCoords.w();
         
-        rays.push_back({camera.position, (worldPoint - camera.position).normalized(), camera_id});
+        rays.push_back({camera.position, (worldPoint - camera.position).normalized(), camera_id, pixel_angular_size});
     }
     
     return rays;
@@ -243,14 +272,37 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
 
 
     for(auto ray : candidate_rays){
-        float t_entry = getRayEntryT(ray, target_zone); // get where the voxel enters the target zone
-        stats.intersection_checks++;
-        std::vector<std::pair<int, float>> intersections = traverseGrid(ray, t_entry, target_zone, subdiv_n);
-        stats.voxels_visited += intersections.size();
+        float t_entry = getRayEntryT(ray, target_zone); // get where the ray enters the target zone
 
-        for (const auto& [voxel_idx, t] : intersections) {
-            child_rays_map[voxel_idx].push_back(ray);
+        // Calculate if we need to subdivide
+        float distance = t_entry;
+        float ray_footprint = distance * ray.pixel_angular_size;
+        float child_voxel_size = (target_zone.half_size * 2.0f) / subdiv_n;
+        
+        std::vector<Ray> rays_to_process;
+        
+        float threshold = 0.2f;
+        if (ray_footprint > child_voxel_size * threshold) { // if the ray is bigger than the voxel size, we subdivide to avoid missing intersections because of sampling
+            stats.rays_subdivided++;
+            stats.total_subrays_created += 3; // 4 new rays but net +3
+            rays_to_process = subdivideRay(ray);
+        } else {
+            rays_to_process = {ray};
         }
+
+        for (const auto& r : rays_to_process) {
+            float t = getRayEntryT(r, target_zone);
+            if (t < 0) continue;  // skip if doesn't intersect
+            
+            stats.intersection_checks++;
+            std::vector<std::pair<int, float>> intersections = traverseGrid(r, t, target_zone, subdiv_n);
+            stats.voxels_visited += intersections.size();
+
+            for (const auto& [voxel_idx, t_val] : intersections) {
+                child_rays_map[voxel_idx].push_back(r);
+            }
+        }
+
     }
     // Recurse for children with enough cameras
     for (int voxel_idx = 0; voxel_idx < total_cells; ++voxel_idx) {
@@ -307,7 +359,7 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
         cv::Mat binary;
         int threshold = 5;
         cv::threshold(diff, binary, threshold, 255, cv::THRESH_BINARY);
-        //cv::imshow("Camera " + std::to_string(&frame - &camera_frames[0]) + " Diff", binary);
+        cv::imshow("Camera " + std::to_string(&frame - &camera_frames[0]) + " Diff", diff);
 
     // Get camera rays from all pixels where movement is detected by the temporal image difference
         std::vector<std::pair<float, float>> movement_pixels;
@@ -343,6 +395,10 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
     // populate detections
     recursive_detection(target_zone, all_rays, min_voxel_size, min_ray_threshold, detections, stats, subdiv_n, 0);
 
+
+
+    std::cout << "Subdivisions: " << stats.rays_subdivided 
+          << ", Total subrays: " << stats.total_subrays_created << std::endl;
     return detections;
 
 }

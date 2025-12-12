@@ -17,6 +17,7 @@ struct InsectSwarmConfig {
     float spread = 0.3f;
     float zoneHalfSize = 2.0f;
     float movementSpeed = 0.5f;
+    float insectSize = 0.01f;
 };
 
 class InsectSwarm {
@@ -42,7 +43,7 @@ public:
             t.position = zoneCenter_ + Eigen::Vector3f(
                 spawnDist(rng_), spawnDist(rng_), spawnDist(rng_)
             );
-            t.scale = Eigen::Vector3f(0.1f, 0.1f, 0.1f);
+            t.scale = Eigen::Vector3f(config.insectSize, config.insectSize, config.insectSize);
 
             insects_.push_back({mesh, t, material});
         }
