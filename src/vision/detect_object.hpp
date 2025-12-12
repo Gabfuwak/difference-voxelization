@@ -21,6 +21,7 @@ struct Ray {
     int camera_id;
 };
 
+
 struct CameraFrame {
     scene::Camera camera;
     cv::Mat current_frame;
@@ -81,7 +82,134 @@ bool rayIntersectsVoxel(const Ray& ray, const Voxel& voxel) {
     return tmax >= tmin && tmax >= 0.0f;
 }
 
+/**
+ * Returns the parameter t of the ray at which it enters the voxel.
+ *
+ * To get the entry point in global referential, run (ray.origin + ray.direction * getRayEntryT(ray, voxel))
+ *
+ * If the ray does not intersect with the voxel, returns -1.
+ *
+ */
+float getRayEntryT(const Ray& ray, const Voxel& voxel) {
+    float tmin = 0.0f;
+    float tmax = std::numeric_limits<float>::infinity();
+    
+    for (int i = 0; i < 3; ++i) {
+        // Compute min and max from center + half_size
+        float voxel_min = voxel.center[i] - voxel.half_size;
+        float voxel_max = voxel.center[i] + voxel.half_size;
+        
+        float t1 = (voxel_min - ray.origin[i]) / ray.direction[i];
+        float t2 = (voxel_max - ray.origin[i]) / ray.direction[i];
+        
+        tmin = std::max(tmin, std::min(t1, t2));
+        tmax = std::min(tmax, std::max(t1, t2));
+    }
+    
+    if (tmax >= tmin && tmax >= 0.0f){
+        return tmin;
+    }else{
+        return -1;
+    }
+}
 
+
+/**
+ * Traverses a ray through an n×n×n grid inside target_voxel using DDA.
+ * Returns a map from voxel index to the t value when the ray entered that voxel.
+ * Key is the flattened index of the ray: 
+ */
+std::unordered_map<int, float> traverseGrid(const Ray& ray, float t_entry, const Voxel& target_voxel, int n){
+    float voxel_size = (target_voxel.half_size * 2) / n;
+    Eigen::Vector3f grid_min = target_voxel.center - Eigen::Vector3f::Constant(target_voxel.half_size);
+
+    Eigen::Vector3f ray_entry_point = ray.origin + t_entry * ray.direction;
+
+    Eigen::Vector3i step = { // in which direction do we need to go for each dimension
+        (ray.direction.x() >= 0) ? 1 : -1,
+        (ray.direction.y() >= 0) ? 1 : -1,
+        (ray.direction.z() >= 0) ? 1 : -1
+    };
+
+    Eigen::Vector3f tDelta = {
+        voxel_size / std::abs(ray.direction.x()),
+        voxel_size / std::abs(ray.direction.y()),
+        voxel_size / std::abs(ray.direction.z())
+    };
+
+    // curr_idx, initialize with entry point idx
+    Eigen::Vector3i curr_idx_vec = {
+        static_cast<int>(floor((ray_entry_point.x() - grid_min.x()) / voxel_size)),
+        static_cast<int>(floor((ray_entry_point.y() - grid_min.y()) / voxel_size)),
+        static_cast<int>(floor((ray_entry_point.z() - grid_min.z()) / voxel_size)),
+    };
+    curr_idx_vec = curr_idx_vec.cwiseMax(0).cwiseMin(n - 1);
+
+    Eigen::Vector3f t_max;
+    
+    // initial t_max
+    for(int i = 0; i<3; ++i){
+        float next_boundary_distance = 0;
+        if(step[i] > 0){
+            next_boundary_distance = grid_min[i] + (curr_idx_vec[i] + 1) * voxel_size;
+        }else{
+            next_boundary_distance = grid_min[i] + curr_idx_vec[i] * voxel_size;
+        }
+
+
+        if(std::abs(ray.direction[i]) <= 0.00001f){ 
+            t_max[i] = std::numeric_limits<float>::infinity();
+        }else{
+            t_max[i] = (next_boundary_distance - ray.origin[i]) / ray.direction[i];
+        }
+    }
+
+    std::unordered_map<int, float> result;
+    float curr_t = t_entry;
+
+    while (curr_idx_vec.x() >= 0 && curr_idx_vec.x() < n 
+        && curr_idx_vec.y() >= 0 && curr_idx_vec.y() < n 
+        && curr_idx_vec.z() >= 0 && curr_idx_vec.z() < n) {
+
+        // record curr voxel to result
+        int idx = curr_idx_vec.x() + curr_idx_vec.y() * n + curr_idx_vec.z() * n * n;
+        result[idx] = curr_t;
+        
+
+        int min_axis = 0;
+        // Find which axis has smallest tMax (next boundary hit)
+        if (t_max[1] < t_max[min_axis]) min_axis = 1;
+        if (t_max[2] < t_max[min_axis]) min_axis = 2;
+
+
+        // Step in that direction, update tMax for that axis
+        curr_idx_vec[min_axis] += step[min_axis];
+        curr_t = t_max[min_axis];  // we enter the new voxel at this t
+        t_max[min_axis] += tDelta[min_axis];
+    }
+
+    return result;
+    
+}
+
+
+Voxel indexToVoxel(int idx, const Voxel& parent, int n) {
+    int ix = idx % n;
+    int iy = (idx / n) % n;
+    int iz = idx / (n * n);
+    
+    float child_half_size = parent.half_size / n;
+    float voxel_size = parent.half_size * 2.0f / n;
+    Eigen::Vector3f grid_min = parent.center - Eigen::Vector3f::Constant(parent.half_size);
+    
+    Eigen::Vector3f child_center = grid_min + Eigen::Vector3f(
+        (ix + 0.5f) * voxel_size,
+        (iy + 0.5f) * voxel_size,
+        (iz + 0.5f) * voxel_size
+    );
+    
+    return Voxel{child_center, child_half_size};
+}
 
 /**
  * Populates the "detections" vector with all voxels where we might have found an object
@@ -101,37 +229,33 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
         return;
     }
 
-    // Separate into 8 smaller voxels
-    float new_half_size = target_zone.half_size / 2.0;
-    for(int x = 0; x<2; ++x){
-        for(int y = 0; y<2; ++y){
-            for(int z = 0; z<2; ++z){
-                // 0 is the negative direction, 1 is the positive direction
-                Eigen::Vector3f offset(
-                    (x == 0) ? -new_half_size : new_half_size,
-                    (y == 0) ? -new_half_size : new_half_size,
-                    (z == 0) ? -new_half_size : new_half_size
-                );
+    // Separate into n*n*n smaller voxels
+    // temporary hardcoded parameter (to be added in imgui after refac)
+    int subdiv_n = 2;
 
-                Voxel child{target_zone.center + offset, new_half_size};
 
-                // We only keep the rays that interact with this child for optimisation
-                std::vector<Ray> child_rays;
-                std::unordered_set<int> child_cameras;
-                for (const auto ray : candidate_rays) {
-                    stats.intersection_checks++;
-                    stats.checks_per_depth[depth]++;
-                    if (rayIntersectsVoxel(ray, child)) {
-                        child_rays.push_back(ray);
-                        child_cameras.insert(ray.camera_id);
-                    }
-                }
-                
-                // Only recurse if the child is a potential detection
-                if (child_cameras.size() >= min_ray_threshold) {
-                    recursive_detection(child, child_rays, min_voxel_size, min_ray_threshold, detections, stats, depth+1);
-                }
-            }
+
+    std::unordered_map<int, std::vector<Ray>> child_rays_map;
+    for(auto ray : candidate_rays){
+        float t_entry = getRayEntryT(ray, target_zone); // get where the voxel enters the target zone
+        std::unordered_map<int, float> intersections = traverseGrid(ray, t_entry, target_zone, subdiv_n);
+
+        for (const auto& [voxel_idx, t] : intersections) {
+            child_rays_map[voxel_idx].push_back(ray);
+        }
+    }
+
+    // Recurse for children with enough cameras
+    for (auto& [voxel_idx, child_rays] : child_rays_map) {
+        // Count unique cameras from the rays themselves
+        std::unordered_set<int> cameras;
+        for (const auto ray : child_rays) {
+            cameras.insert(ray.camera_id);
+        }
+        
+        if (cameras.size() >= min_ray_threshold) {
+            Voxel child = indexToVoxel(voxel_idx, target_zone, subdiv_n);
+            recursive_detection(child, child_rays, min_voxel_size, min_ray_threshold, detections, stats, depth + 1);
         }
     }
 }
