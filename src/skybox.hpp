@@ -1,4 +1,6 @@
+#include <array>
 #include <ranges>
+#include <string>
 #include <webgpu/webgpu_cpp.h>
 #include "webgpu_utils.hpp"
 #include "image.hpp"
@@ -10,8 +12,9 @@ public:
     wgpu::RenderPipeline pipeline;
     wgpu::BindGroupLayout materialLayout;
 
-    SkyboxRenderer() {};
-    SkyboxRenderer(
+    SkyboxRenderer() {}
+
+    void initialize(
         wgpu::Device device,
         wgpu::TextureFormat colorFormat,
         wgpu::TextureFormat depthFormat,
@@ -21,15 +24,35 @@ public:
         createPipeline(device, colorFormat, depthFormat, globalsLayout);
     }
 
+    void render(
+        wgpu::RenderPassEncoder pass,
+        wgpu::BindGroup globalsBindGroup,
+        wgpu::BindGroup materialBindGroup
+    ) {
+        pass.SetPipeline(pipeline);
+        pass.SetBindGroup(0, globalsBindGroup);
+        pass.SetBindGroup(1, materialBindGroup);
+        pass.Draw(3);
+    }
+
     void createPipeline(
         wgpu::Device device,
         wgpu::TextureFormat colorFormat,
         wgpu::TextureFormat depthFormat,
         wgpu::BindGroupLayout globalsLayout
     ) {
-        auto module = utils::loadShaderModule(device, "skybox.wgsl");
+        std::vector<BindGroupLayout> bindGroupLayouts = {
+            globalsLayout,
+            materialLayout,
+        };
+        PipelineLayoutDescriptor layoutDesc {
+            .label = "skybox",
+            .bindGroupLayoutCount = bindGroupLayouts.size(),
+            .bindGroupLayouts = bindGroupLayouts.data(),
+        };
+        auto layout = device.CreatePipelineLayout(&layoutDesc);
 
-        std::vector layouts {globalsLayout, materialLayout};
+        auto module = utils::loadShaderModule(device, "skybox.wgsl");
 
         wgpu::VertexState vertex {.module = module};
 
@@ -49,24 +72,14 @@ public:
             .targets = &colorTarget,
         };
 
-        wgpu::RenderPipelineDescriptor pipelineDesc {
+        wgpu::RenderPipelineDescriptor desc {
             .label = "skybox",
+            .layout = layout,
             .vertex = vertex,
             .depthStencil = &depthStencil,
             .fragment = &fragment,
         };
-        device.CreateRenderPipeline(&pipelineDesc);
-    }
-
-    void render(
-        wgpu::RenderPassEncoder pass,
-        wgpu::BindGroup globalsBindGroup,
-        wgpu::BindGroup materialBindGroup
-    ) {
-        pass.SetPipeline(pipeline);
-        pass.SetBindGroup(0, globalsBindGroup);
-        pass.SetBindGroup(1, materialBindGroup);
-        pass.Draw(3);
+        pipeline = device.CreateRenderPipeline(&desc);
     }
 
     void createMaterialLayout(wgpu::Device device) {
@@ -88,7 +101,6 @@ public:
             .entryCount = entries.size(),
             .entries = entries.data(),
         };
-
         materialLayout = device.CreateBindGroupLayout(&layoutDesc);
     }
 };
@@ -99,20 +111,24 @@ public:
     BindGroup bindGroup;
     Sampler sampler;
     Texture textureCube;
+    TextureView textureCubeView;
 
-    void initialize(Device& device) {
+    void initialize(Device device, const std::array<std::string, 6>& facePaths) {
         createLayout(device);
         createSampler(device);
-    };
+        createTextureCube(device, facePaths);
+        createTextureCubeView();
+        createBindGroup(device);
+    }
 
     void createLayout(Device& device) {
         std::vector<BindGroupLayoutEntry> entries {{
             .binding = 0,
-            .visibility = ShaderStage::Vertex | ShaderStage::Fragment,
+            .visibility = ShaderStage::Fragment,
             .texture = {.sampleType = TextureSampleType::Float, .viewDimension = TextureViewDimension::Cube},
         }, {
             .binding = 1,
-            .visibility = ShaderStage::Vertex | ShaderStage::Fragment,
+            .visibility = ShaderStage::Fragment,
             .sampler = {.type = SamplerBindingType::Filtering},
         }};
         BindGroupLayoutDescriptor desc {
@@ -123,34 +139,64 @@ public:
         layout = device.CreateBindGroupLayout(&desc);
     }
 
-    void createBindGroup(Device& device) {
-        // std::vector<BindGroupEntry> entries {{
-        //     .binding = 0,
-        //     .textureView = textureCubeView,
-        // }, {
-        //     .binding = 1,
-        //     .sampler = sampler,
-        // }};
-        // BindGroupDescriptor desc {
-        //     .layout = pipeline.GetBindGroupLayout(1),
-        //     .entryCount = entries.size(),
-        //     .entries = entries.data(),
-        // };
-        // materialBindGroup = device.CreateBindGroup(&desc);
+    void createTextureCube(Device& device, const std::array<std::string, 6>& facePaths) {
+        auto faceImages = facePaths
+            | std::views::transform([](auto path) { return Image::load(path); })
+            | std::ranges::to<std::vector>();
+
+        auto width = faceImages[0].getWidth();
+        auto height = faceImages[0].getHeight();
+
+        TextureDescriptor textureCubeDesc {
+            .usage = TextureUsage::TextureBinding | TextureUsage::CopyDst,
+            .dimension = TextureDimension::e2D,
+            .size = {width, height, 6},
+            .format = TextureFormat::RGBA8Unorm,
+        };
+        textureCube = device.CreateTexture(&textureCubeDesc);
+
+        TexelCopyBufferLayout dataLayout {
+            .bytesPerRow = 4 * width,
+            .rowsPerImage = height,
+        };
+
+        Extent3D writeSize {width, height};
+
+        for (uint32_t layer = 0; layer < 6; layer++) {
+            TexelCopyTextureInfo destination {
+                .texture = textureCube,
+                .origin = {0, 0, layer},
+            };
+            const auto dataSize = 4 * width * height;
+            device.GetQueue().WriteTexture(&destination, faceImages[layer].data.get(), dataSize, &dataLayout, &writeSize);
+        }
     }
 
     void createSampler(Device& device) {
         sampler = device.CreateSampler();
     }
 
-    void createTextureCube(Device& device, uint32_t length) {
-        TextureDescriptor desc {
-            .usage = TextureUsage::TextureBinding | TextureUsage::CopyDst,
-            .dimension = TextureDimension::e2D,
-            .size = {length, length, 6},
-            .format = TextureFormat::RGBA8Unorm,
+    void createTextureCubeView() {
+        TextureViewDescriptor desc {
+            .dimension = TextureViewDimension::Cube,
         };
-        textureCube = device.CreateTexture(&desc);
+        textureCubeView = textureCube.CreateView(&desc);
+    }
+
+    void createBindGroup(Device& device) {
+        std::vector<BindGroupEntry> entries {{
+            .binding = 0,
+            .textureView = textureCubeView,
+        }, {
+            .binding = 1,
+            .sampler = sampler,
+        }};
+        BindGroupDescriptor desc {
+            .layout = layout,
+            .entryCount = entries.size(),
+            .entries = entries.data(),
+        };
+        bindGroup = device.CreateBindGroup(&desc);
     }
 };
 

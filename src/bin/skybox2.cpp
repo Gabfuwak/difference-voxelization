@@ -11,10 +11,12 @@
 #include <utils.hpp>
 #include "stb_image.h"
 #include <vector>
+#include <array>
 #include <ranges>
 #include "utils.hpp"
 #include <camera2.hpp>
 #include <image.hpp>
+#include <webgpu_utils.hpp>
 #include <glfw_utils.hpp>
 #include "skybox.hpp"
 #include "globals.hpp"
@@ -34,8 +36,8 @@ struct Cursor {
 class SkyboxApp {
 public:
     std::string title = "Skybox App";
-    uint32_t width = 640;
-    uint32_t height = 480;
+    uint32_t width = 800;
+    uint32_t height = 600;
 
     Cursor cursor;
 
@@ -46,25 +48,29 @@ public:
     Queue queue;
     Surface surface;
     RenderPipeline pipeline;
-    BindGroup globalsBindGroup;
-    BindGroup materialBindGroup;
-    Texture texture;
-    Sampler sampler;
 
     Globals globals;
 
-    std::vector<Texture> faceTextures;
-    Texture textureCube;
-    TextureView textureCubeView;
-
     float time;
-    Buffer timeBuffer;
 
     FreeCamera camera;
-    Buffer cameraBuffer;
 
     SkyboxRenderer skyboxRenderer;
     SkyboxMaterial skyboxMaterial;
+
+    Texture depthTexture;
+    TextureFormat depthFormat = TextureFormat::Depth24Plus;
+
+    TextureFormat surfaceFormat;
+
+    std::array<std::string, 6> skyboxFacePaths {
+        "leadenhall_market/pos-x.jpg",
+        "leadenhall_market/neg-x.jpg",
+        "leadenhall_market/pos-y.jpg",
+        "leadenhall_market/neg-y.jpg",
+        "leadenhall_market/pos-z.jpg",
+        "leadenhall_market/neg-z.jpg",
+    };
 
     SkyboxApp() {}
 
@@ -82,17 +88,19 @@ public:
 
         createWindow();
         createSurface();
+        createDepthTexture();
 
         utils::imguiInitialize(window, device, surface);
         globals.initialize(device);
+        skyboxMaterial.initialize(device, skyboxFacePaths);
+        skyboxRenderer.initialize(device, surfaceFormat, depthFormat, globals.layout);
 
         createPipeline();
-        createBuffers();
-        // createTexture();
-        createTextureCube();
-        createSampler();
         createCamera();
-        createMaterialBindGroup();
+    }
+
+    void createDepthTexture() {
+        depthTexture = utils::createDepthTexture(device, window);
     }
 
     void createCamera() {
@@ -161,126 +169,8 @@ public:
         }
     }
 
-    void createBuffers() {
-        BufferDescriptor bufferDesc {
-            .usage = BufferUsage::Uniform | BufferUsage::CopyDst,
-            .size = sizeof(float),
-        };
-        timeBuffer = device.CreateBuffer(&bufferDesc);
-    }
-
-    void createTexture() {
-        auto image = Image::load("f_texture.png");
-
-        Extent3D textureSize {image.getWidth(), image.getHeight()};
-        TextureDescriptor textureDesc {
-            .usage = TextureUsage::TextureBinding | TextureUsage::CopyDst,
-            .size = textureSize,
-            .format = TextureFormat::RGBA8Unorm,
-        };
-        texture = device.CreateTexture(&textureDesc);
-
-        TexelCopyTextureInfo destination {
-            .texture = texture,
-        };
-        TexelCopyBufferLayout textureDataLayout {
-            .bytesPerRow = 4 * image.getWidth(),
-            .rowsPerImage = image.getHeight(),
-        };
-        queue.WriteTexture(&destination, image.data.get(), 4 * image.getWidth() * image.getHeight(), &textureDataLayout, &textureSize);
-    }
-
-    Texture createTextureFromImage(Image& image) {
-        Extent3D textureSize {image.getWidth(), image.getHeight()};
-            TextureDescriptor textureDesc {
-                .usage = TextureUsage::TextureBinding | TextureUsage::CopyDst,
-                .size = textureSize,
-                .format = TextureFormat::RGBA8Unorm,
-            };
-        auto texture = this->device.CreateTexture(&textureDesc);
-
-        TexelCopyTextureInfo destination {
-            .texture = texture,
-        };
-        TexelCopyBufferLayout textureDataLayout {
-            .bytesPerRow = 4 * image.getWidth(),
-            .rowsPerImage = image.getHeight(),
-        };
-        queue.WriteTexture(&destination, image.data.get(), 4 * image.getWidth() * image.getHeight(), &textureDataLayout, &textureSize);
-
-        return texture;
-    }
-
     void installGlfwCallbacks() {
 
-    }
-
-    std::vector<Texture> createTextureCubeFaces() {
-        // std::vector<Image> images;
-        // images.emplace_back(Image::load("leadenhall_market/pos-x.jpg"));
-        // images.emplace_back(Image::load("leadenhall_market/neg-x.jpg"));
-        // images.emplace_back(Image::load("leadenhall_market/pos-y.jpg"));
-        // images.emplace_back(Image::load("leadenhall_market/neg-y.jpg"));
-        // images.emplace_back(Image::load("leadenhall_market/pos-z.jpg"));
-        // images.emplace_back(Image::load("leadenhall_market/neg-z.jpg"));
-
-        // faceTextures = images
-        //     | std::views::transform([this](auto& image) { return createTextureFromImage(image); })
-        //     | std::ranges::to<std::vector>();
-
-        // return faceTextures;
-    }
-
-    std::vector<Image> loadTextureCubeImages() {
-        std::vector<Image> images;
-        images.emplace_back(Image::load("leadenhall_market/pos-x.jpg"));
-        images.emplace_back(Image::load("leadenhall_market/neg-x.jpg"));
-        images.emplace_back(Image::load("leadenhall_market/pos-y.jpg"));
-        images.emplace_back(Image::load("leadenhall_market/neg-y.jpg"));
-        images.emplace_back(Image::load("leadenhall_market/pos-z.jpg"));
-        images.emplace_back(Image::load("leadenhall_market/neg-z.jpg"));
-        return images;
-    }
-
-    void createTextureCube() {
-        auto images = loadTextureCubeImages();
-
-        auto width = images[0].getWidth();
-        auto height = images[0].getHeight();
-
-        TextureDescriptor textureCubeDesc {
-            .usage = TextureUsage::TextureBinding | TextureUsage::CopyDst,
-            .dimension = TextureDimension::e2D,
-            .size = {width, height, 6},
-            .format = TextureFormat::RGBA8Unorm,
-        };
-        textureCube = device.CreateTexture(&textureCubeDesc);
-
-        TexelCopyBufferLayout textureDataLayout {
-            .bytesPerRow = 4 * width,
-            .rowsPerImage = height,
-        };
-        Extent3D textureSize {width, height};
-
-        for (uint32_t layer = 0; layer < 6; layer++) {
-            auto& image = images[layer];
-            TexelCopyTextureInfo destination {
-                .texture = textureCube,
-                .origin = {0, 0, layer},
-            };
-            const auto dataSize = 4 * width * height;
-            queue.WriteTexture(&destination, image.data.get(), dataSize, &textureDataLayout, &textureSize);
-        }
-
-        TextureViewDescriptor textureCubeViewDesc {
-            .dimension = TextureViewDimension::Cube,
-        };
-        textureCubeView = textureCube.CreateView(&textureCubeViewDesc);
-    }
-
-    void createSampler() {
-        SamplerDescriptor samplerDesc {};
-        sampler = device.CreateSampler(&samplerDesc);
     }
 
     void start() {
@@ -321,24 +211,6 @@ public:
             .targets = colorTargets.data(),
         };
 
-
-        skyboxMaterial.initialize(device);
-        // std::vector<BindGroupLayoutEntry> materialLayoutEntries {{
-        //     .binding = 0,
-        //     .visibility = ShaderStage::Vertex | ShaderStage::Fragment,
-        //     .texture = {.sampleType = TextureSampleType::Float, .viewDimension = TextureViewDimension::Cube},
-        // }, {
-        //     .binding = 1,
-        //     .visibility = ShaderStage::Vertex | ShaderStage::Fragment,
-        //     .sampler = {.type = SamplerBindingType::Filtering},
-        // }};
-        // BindGroupLayoutDescriptor materialLayoutDesc {
-        //     .label = "skybox material",
-        //     .entryCount = materialLayoutEntries.size(),
-        //     .entries = materialLayoutEntries.data(),
-        // };
-        // auto skyboxMaterialLayout = device.CreateBindGroupLayout(&materialLayoutDesc);
-
         std::vector<BindGroupLayout> bindGroupLayouts {
             globals.layout,
             skyboxMaterial.layout,
@@ -358,27 +230,10 @@ public:
         pipeline = device.CreateRenderPipeline(&pipelineDesc);
     }
 
-    void createMaterialBindGroup() {
-        // assert(faceTextures.size() == 6);
-        std::vector<BindGroupEntry> entries {{
-            .binding = 0,
-            .textureView = textureCubeView,
-        }, {
-            .binding = 1,
-            .sampler = skyboxMaterial.sampler,
-        }};
-        BindGroupDescriptor desc {
-            .layout = skyboxMaterial.layout,
-            .entryCount = entries.size(),
-            .entries = entries.data(),
-        };
-        skyboxMaterial.bindGroup = device.CreateBindGroup(&desc);
-    }
-
     void render() {
         updateGlobals();
 
-        CommandEncoderDescriptor commandEncoderDesc {};
+        CommandEncoderDescriptor commandEncoderDesc {.label = "skybox app"};
         auto commandEncoder = device.CreateCommandEncoder(&commandEncoderDesc);
 
         auto surfaceTexture = utils::getSurfaceTexture(surface);
@@ -389,17 +244,27 @@ public:
             .clearValue = {1, 1, 1, 0},
         }};
 
+        RenderPassDepthStencilAttachment depthStencilAttachment {
+            .view = depthTexture.CreateView(),
+            .depthLoadOp = LoadOp::Clear,
+            .depthStoreOp = StoreOp::Store,
+            .depthClearValue = 1.0f,
+        };
+
         RenderPassDescriptor passDesc {
+            .label = "skybox app",
             .colorAttachmentCount = colorAttachments.size(),
             .colorAttachments = colorAttachments.data(),
+            .depthStencilAttachment = &depthStencilAttachment,
         };
         auto pass = commandEncoder.BeginRenderPass(&passDesc);
 
-        pass.SetPipeline(pipeline);
-        pass.SetBindGroup(0, globals.bindGroup);
-        // pass.SetBindGroup(1, materialBindGroup);
-        pass.SetBindGroup(1, skyboxMaterial.bindGroup);
-        pass.Draw(3);
+        skyboxRenderer.render(pass, globals.bindGroup, skyboxMaterial.bindGroup);
+
+        // pass.SetPipeline(pipeline);
+        // pass.SetBindGroup(0, globals.bindGroup);
+        // pass.SetBindGroup(1, skyboxMaterial.bindGroup);
+        // pass.Draw(3);
         pass.End();
 
         std::vector<CommandBuffer> commands {{commandEncoder.Finish()}};
@@ -422,6 +287,7 @@ public:
 
     void createSurface() {
         surface = utils::createSurfaceWithPreferredFormat(device, window);
+        surfaceFormat = utils::getSurfaceTexture(surface).GetFormat();
     }
 };
 
