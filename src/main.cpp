@@ -232,7 +232,7 @@ int main() {
 
 
         auto start = std::chrono::high_resolution_clock::now();
-        auto detections = detect_objects(target_zone, frames, min_voxel_size, min_ray_threshold);
+        auto detections = detect_objects(target_zone, frames, min_voxel_size, min_ray_threshold, 8);
 
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);

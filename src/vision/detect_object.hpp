@@ -21,6 +21,7 @@ struct Ray {
     int camera_id;
 };
 
+
 struct CameraFrame {
     scene::Camera camera;
     cv::Mat current_frame;
@@ -31,6 +32,7 @@ struct CameraFrame {
 struct DetectionStats {
     size_t ray_count = 0;
     size_t nodes_visited = 0;
+    size_t voxels_visited = 0;
     size_t intersection_checks = 0;
     size_t total_depth = 0;
     std::vector<size_t> checks_per_depth = std::vector<size_t>(30, 0);
@@ -81,14 +83,143 @@ bool rayIntersectsVoxel(const Ray& ray, const Voxel& voxel) {
     return tmax >= tmin && tmax >= 0.0f;
 }
 
+/**
+ * Returns the parameter t of the ray at which it enters the voxel.
+ *
+ * To get the entry point in global referential, run (ray.origin + ray.direction * getRayEntryT(ray, voxel))
+ *
+ * If the ray does not intersect with the voxel, returns -1.
+ *
+ */
+float getRayEntryT(const Ray& ray, const Voxel& voxel) {
+    float tmin = 0.0f;
+    float tmax = std::numeric_limits<float>::infinity();
+    
+    for (int i = 0; i < 3; ++i) {
+        // Compute min and max from center + half_size
+        float voxel_min = voxel.center[i] - voxel.half_size;
+        float voxel_max = voxel.center[i] + voxel.half_size;
+        
+        float t1 = (voxel_min - ray.origin[i]) / ray.direction[i];
+        float t2 = (voxel_max - ray.origin[i]) / ray.direction[i];
+        
+        tmin = std::max(tmin, std::min(t1, t2));
+        tmax = std::min(tmax, std::max(t1, t2));
+    }
+    
+    if (tmax >= tmin && tmax >= 0.0f){
+        return tmin;
+    }else{
+        return -1;
+    }
+}
 
+
+/**
+ * Traverses a ray through an n×n×n grid inside target_voxel using DDA.
+ * Returns a map from voxel index to the t value when the ray entered that voxel.
+ * Key is the flattened index of the ray: 
+ */
+std::vector<std::pair<int, float>> traverseGrid(const Ray& ray, float t_entry, const Voxel& target_voxel, int n){
+    float voxel_size = (target_voxel.half_size * 2) / n;
+    Eigen::Vector3f grid_min = target_voxel.center - Eigen::Vector3f::Constant(target_voxel.half_size);
+
+    Eigen::Vector3f ray_entry_point = ray.origin + t_entry * ray.direction;
+
+    Eigen::Vector3i step = { // in which direction do we need to go for each dimension
+        (ray.direction.x() >= 0) ? 1 : -1,
+        (ray.direction.y() >= 0) ? 1 : -1,
+        (ray.direction.z() >= 0) ? 1 : -1
+    };
+
+    Eigen::Vector3f tDelta = {
+        voxel_size / std::abs(ray.direction.x()),
+        voxel_size / std::abs(ray.direction.y()),
+        voxel_size / std::abs(ray.direction.z())
+    };
+
+    // curr_idx, initialize with entry point idx
+    Eigen::Vector3i curr_idx_vec = {
+        static_cast<int>(floor((ray_entry_point.x() - grid_min.x()) / voxel_size)),
+        static_cast<int>(floor((ray_entry_point.y() - grid_min.y()) / voxel_size)),
+        static_cast<int>(floor((ray_entry_point.z() - grid_min.z()) / voxel_size)),
+    };
+    curr_idx_vec = curr_idx_vec.cwiseMax(0).cwiseMin(n - 1);
+
+    Eigen::Vector3f t_max;
+    
+    // initial t_max
+    for(int i = 0; i<3; ++i){
+        float next_boundary_distance = 0;
+        if(step[i] > 0){
+            next_boundary_distance = grid_min[i] + (curr_idx_vec[i] + 1) * voxel_size;
+        }else{
+            next_boundary_distance = grid_min[i] + curr_idx_vec[i] * voxel_size;
+        }
+
+
+        if(std::abs(ray.direction[i]) <= 0.00001f){ 
+            t_max[i] = std::numeric_limits<float>::infinity();
+        }else{
+            t_max[i] = (next_boundary_distance - ray.origin[i]) / ray.direction[i];
+        }
+    }
+
+    std::vector<std::pair<int, float>> result;
+    result.reserve(n * 3); // rough estimate
+    float curr_t = t_entry;
+
+    while (curr_idx_vec.x() >= 0 && curr_idx_vec.x() < n 
+        && curr_idx_vec.y() >= 0 && curr_idx_vec.y() < n 
+        && curr_idx_vec.z() >= 0 && curr_idx_vec.z() < n) {
+
+        // record curr voxel to result
+        int idx = curr_idx_vec.x() + curr_idx_vec.y() * n + curr_idx_vec.z() * n * n;
+        result.emplace_back(idx, curr_t);
+
+        
+
+        int min_axis = 0;
+        // Find which axis has smallest tMax (next boundary hit)
+        if (t_max[1] < t_max[min_axis]) min_axis = 1;
+        if (t_max[2] < t_max[min_axis]) min_axis = 2;
+
+
+        // Step in that direction, update tMax for that axis
+        curr_idx_vec[min_axis] += step[min_axis];
+        curr_t = t_max[min_axis];  // we enter the new voxel at this t
+        t_max[min_axis] += tDelta[min_axis];
+    }
+
+    return result;
+    
+}
+
+
+Voxel indexToVoxel(int idx, const Voxel& parent, int n) {
+    int ix = idx % n;
+    int iy = (idx / n) % n;
+    int iz = idx / (n * n);
+    
+    float child_half_size = parent.half_size / n;
+    float voxel_size = parent.half_size * 2.0f / n;
+    Eigen::Vector3f grid_min = parent.center - Eigen::Vector3f::Constant(parent.half_size);
+    
+    Eigen::Vector3f child_center = grid_min + Eigen::Vector3f(
+        (ix + 0.5f) * voxel_size,
+        (iy + 0.5f) * voxel_size,
+        (iz + 0.5f) * voxel_size
+    );
+    
+    return Voxel{child_center, child_half_size};
+}
 
 /**
  * Populates the "detections" vector with all voxels where we might have found an object
  *
  *
  */
-void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, float min_voxel_size, size_t min_ray_threshold, std::vector<Voxel>& detections,DetectionStats& stats, int depth = 0){
+void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, float min_voxel_size, size_t min_ray_threshold, std::vector<Voxel>& detections,DetectionStats& stats, int subdiv_n, int depth = 0){
 
     stats.nodes_visited++;
     stats.total_depth += depth;
@@ -101,37 +232,42 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
         return;
     }
 
-    // Separate into 8 smaller voxels
-    float new_half_size = target_zone.half_size / 2.0;
-    for(int x = 0; x<2; ++x){
-        for(int y = 0; y<2; ++y){
-            for(int z = 0; z<2; ++z){
-                // 0 is the negative direction, 1 is the positive direction
-                Eigen::Vector3f offset(
-                    (x == 0) ? -new_half_size : new_half_size,
-                    (y == 0) ? -new_half_size : new_half_size,
-                    (z == 0) ? -new_half_size : new_half_size
-                );
+    // Clamp subdivision so child voxels don't go below min_voxel_size
+    int max_subdiv = static_cast<int>(current_size / min_voxel_size);
+    subdiv_n = std::min(subdiv_n, std::max(2, max_subdiv));
 
-                Voxel child{target_zone.center + offset, new_half_size};
+    // Separate into n*n*n smaller voxels
+    int total_cells = subdiv_n * subdiv_n * subdiv_n;  // 512 for 8×8×8
+    std::vector<std::vector<Ray>> child_rays_map(total_cells);
 
-                // We only keep the rays that interact with this child for optimisation
-                std::vector<Ray> child_rays;
-                std::unordered_set<int> child_cameras;
-                for (const auto ray : candidate_rays) {
-                    stats.intersection_checks++;
-                    stats.checks_per_depth[depth]++;
-                    if (rayIntersectsVoxel(ray, child)) {
-                        child_rays.push_back(ray);
-                        child_cameras.insert(ray.camera_id);
-                    }
-                }
-                
-                // Only recurse if the child is a potential detection
-                if (child_cameras.size() >= min_ray_threshold) {
-                    recursive_detection(child, child_rays, min_voxel_size, min_ray_threshold, detections, stats, depth+1);
-                }
-            }
+
+
+    for(auto ray : candidate_rays){
+        float t_entry = getRayEntryT(ray, target_zone); // get where the voxel enters the target zone
+        stats.intersection_checks++;
+        std::vector<std::pair<int, float>> intersections = traverseGrid(ray, t_entry, target_zone, subdiv_n);
+        stats.voxels_visited += intersections.size();
+
+        for (const auto& [voxel_idx, t] : intersections) {
+            child_rays_map[voxel_idx].push_back(ray);
+        }
+    }
+    // Recurse for children with enough cameras
+    for (int voxel_idx = 0; voxel_idx < total_cells; ++voxel_idx) {
+        auto& child_rays = child_rays_map[voxel_idx];
+        
+        if (child_rays.empty()) continue;
+        
+        // Count unique cameras from the rays themselves
+        std::unordered_set<int> cameras;
+        
+        for (const auto& ray : child_rays) {
+            cameras.insert(ray.camera_id);
+        }
+
+        if (cameras.size() >= min_ray_threshold) {
+            Voxel child = indexToVoxel(voxel_idx, target_zone, subdiv_n);
+            recursive_detection(child, child_rays, min_voxel_size, min_ray_threshold, detections, stats, subdiv_n, depth + 1);
         }
     }
 }
@@ -151,8 +287,7 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
  * - min_ray_threshold: how many rays have to hit one voxel in order to consider that it's a detection (will depend on the number of cameras aiming at the target zone)
  *
  * */
-std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFrame>& camera_frames, float min_voxel_size = 0.1f, size_t min_ray_threshold = 3){
-
+std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFrame>& camera_frames, float min_voxel_size = 0.1f, size_t min_ray_threshold = 3, int subdiv_n = 8){
     std::vector<Ray> all_rays;
     std::vector<Voxel> detections;
     DetectionStats stats;
@@ -206,19 +341,7 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
     */
 
     // populate detections
-    recursive_detection(target_zone, all_rays, min_voxel_size, min_ray_threshold, detections, stats, 0);
-
-
-    double avg_depth = stats.nodes_visited > 0 ? static_cast<double>(stats.total_depth) / stats.nodes_visited : 0.0;
-    std::cout << "Rays: " << stats.ray_count << " | Nodes: " << stats.nodes_visited << " | Intersections: " << stats.intersection_checks << "\n";
-    std::cout << "Avg depth: " << avg_depth << " | Detections: " << detections.size() << "\n";
-    std::cout << "Checks by depth: ";
-    for (size_t i = 0; i < stats.checks_per_depth.size(); ++i) {
-        if (stats.checks_per_depth[i] > 0) {
-            std::cout << i << ":" << stats.checks_per_depth[i] << " ";
-        }
-    }
-    std::cout << "\n";
+    recursive_detection(target_zone, all_rays, min_voxel_size, min_ray_threshold, detections, stats, subdiv_n, 0);
 
     return detections;
 
