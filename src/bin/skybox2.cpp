@@ -63,6 +63,9 @@ public:
     FreeCamera camera;
     Buffer cameraBuffer;
 
+    SkyboxRenderer skyboxRenderer;
+    SkyboxMaterial skyboxMaterial;
+
     SkyboxApp() {}
 
     void initialize() {
@@ -81,6 +84,7 @@ public:
         createSurface();
 
         utils::imguiInitialize(window, device, surface);
+        globals.initialize(device);
 
         createPipeline();
         createBuffers();
@@ -88,21 +92,7 @@ public:
         createTextureCube();
         createSampler();
         createCamera();
-        createCameraBuffer();
-        // createBindGroup();
-        createGlobalsBindGroup();
         createMaterialBindGroup();
-
-        globals.initialize(device);
-    }
-
-    void createCameraBuffer() {
-        BufferDescriptor cameraBufferDesc {
-            .label = "camera",
-            .usage = BufferUsage::CopyDst | BufferUsage::Uniform,
-            .size = sizeof(GlobalsData),
-        };
-        cameraBuffer = device.CreateBuffer(&cameraBufferDesc);
     }
 
     void createCamera() {
@@ -118,17 +108,6 @@ public:
         globals.data.viewProjectionInv = viewProjectionInv,
         globals.data.position = camera.position;
         globals.updateBuffer(queue);
-    }
-
-    void updateCameraBuffer() {
-        auto viewProjection = camera.viewProjection();
-        auto viewProjectionInv = glm::inverse(viewProjection);
-        GlobalsData data {
-            .viewProjection = viewProjection,
-            .viewProjectionInv = viewProjectionInv,
-            .position = camera.position,
-        };
-        queue.WriteBuffer(cameraBuffer, 0, &data, sizeof(GlobalsData));
     }
 
     static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
@@ -236,21 +215,38 @@ public:
 
     }
 
+    std::vector<Texture> createTextureCubeFaces() {
+        // std::vector<Image> images;
+        // images.emplace_back(Image::load("leadenhall_market/pos-x.jpg"));
+        // images.emplace_back(Image::load("leadenhall_market/neg-x.jpg"));
+        // images.emplace_back(Image::load("leadenhall_market/pos-y.jpg"));
+        // images.emplace_back(Image::load("leadenhall_market/neg-y.jpg"));
+        // images.emplace_back(Image::load("leadenhall_market/pos-z.jpg"));
+        // images.emplace_back(Image::load("leadenhall_market/neg-z.jpg"));
+
+        // faceTextures = images
+        //     | std::views::transform([this](auto& image) { return createTextureFromImage(image); })
+        //     | std::ranges::to<std::vector>();
+
+        // return faceTextures;
+    }
+
+    std::vector<Image> loadTextureCubeImages() {
+        std::vector<Image> images;
+        images.emplace_back(Image::load("leadenhall_market/pos-x.jpg"));
+        images.emplace_back(Image::load("leadenhall_market/neg-x.jpg"));
+        images.emplace_back(Image::load("leadenhall_market/pos-y.jpg"));
+        images.emplace_back(Image::load("leadenhall_market/neg-y.jpg"));
+        images.emplace_back(Image::load("leadenhall_market/pos-z.jpg"));
+        images.emplace_back(Image::load("leadenhall_market/neg-z.jpg"));
+        return images;
+    }
+
     void createTextureCube() {
-        std::vector<Image> faceImages;
-        faceImages.emplace_back(Image::load("leadenhall_market/pos-x.jpg"));
-        faceImages.emplace_back(Image::load("leadenhall_market/neg-x.jpg"));
-        faceImages.emplace_back(Image::load("leadenhall_market/pos-y.jpg"));
-        faceImages.emplace_back(Image::load("leadenhall_market/neg-y.jpg"));
-        faceImages.emplace_back(Image::load("leadenhall_market/pos-z.jpg"));
-        faceImages.emplace_back(Image::load("leadenhall_market/neg-z.jpg"));
+        auto images = loadTextureCubeImages();
 
-        faceTextures = faceImages
-            | std::views::transform([this](auto& image) { return createTextureFromImage(image); })
-            | std::ranges::to<std::vector>();
-
-        uint32_t width = faceImages[0].getWidth();
-        uint32_t height = faceImages[1].getHeight();
+        auto width = images[0].getWidth();
+        auto height = images[0].getHeight();
 
         TextureDescriptor textureCubeDesc {
             .usage = TextureUsage::TextureBinding | TextureUsage::CopyDst,
@@ -267,7 +263,7 @@ public:
         Extent3D textureSize {width, height};
 
         for (uint32_t layer = 0; layer < 6; layer++) {
-            auto& image = faceImages[layer];
+            auto& image = images[layer];
             TexelCopyTextureInfo destination {
                 .texture = textureCube,
                 .origin = {0, 0, layer},
@@ -309,6 +305,7 @@ public:
 
     void createPipeline() {
         auto shaderModule = utils::loadShaderModule(device, "skybox.wgsl");
+        shaderModule.SetLabel("skybox");
 
         VertexState vertexState {
             .module = shaderModule,
@@ -325,58 +322,61 @@ public:
         };
 
 
-        // PipelineLayoutDescriptor layoutDesc {
-        //     .label = "skybox",
-        //     .bindGroupLayouts =
-        // }
+        skyboxMaterial.initialize(device);
+        // std::vector<BindGroupLayoutEntry> materialLayoutEntries {{
+        //     .binding = 0,
+        //     .visibility = ShaderStage::Vertex | ShaderStage::Fragment,
+        //     .texture = {.sampleType = TextureSampleType::Float, .viewDimension = TextureViewDimension::Cube},
+        // }, {
+        //     .binding = 1,
+        //     .visibility = ShaderStage::Vertex | ShaderStage::Fragment,
+        //     .sampler = {.type = SamplerBindingType::Filtering},
+        // }};
+        // BindGroupLayoutDescriptor materialLayoutDesc {
+        //     .label = "skybox material",
+        //     .entryCount = materialLayoutEntries.size(),
+        //     .entries = materialLayoutEntries.data(),
+        // };
+        // auto skyboxMaterialLayout = device.CreateBindGroupLayout(&materialLayoutDesc);
+
+        std::vector<BindGroupLayout> bindGroupLayouts {
+            globals.layout,
+            skyboxMaterial.layout,
+        };
+        PipelineLayoutDescriptor layoutDesc {
+            .label = "skybox",
+            .bindGroupLayoutCount = bindGroupLayouts.size(),
+            .bindGroupLayouts = bindGroupLayouts.data(),
+        };
+        auto layout = device.CreatePipelineLayout(&layoutDesc);
 
         RenderPipelineDescriptor pipelineDesc {
-            // .layout =
+            .layout = layout,
             .vertex = vertexState,
             .fragment = &fragmentState,
         };
         pipeline = device.CreateRenderPipeline(&pipelineDesc);
     }
 
-    void createGlobalsBindGroup() {
-        std::vector<BindGroupEntry> entries {{
-            .binding = 0,
-            .buffer = cameraBuffer,
-        }};
-        BindGroupDescriptor desc {
-            .layout = pipeline.GetBindGroupLayout(0),
-            .entryCount = entries.size(),
-            .entries = entries.data(),
-        };
-        globalsBindGroup = device.CreateBindGroup(&desc);
-    }
-
     void createMaterialBindGroup() {
-        assert(faceTextures.size() == 6);
+        // assert(faceTextures.size() == 6);
         std::vector<BindGroupEntry> entries {{
             .binding = 0,
             .textureView = textureCubeView,
         }, {
             .binding = 1,
-            .sampler = sampler,
+            .sampler = skyboxMaterial.sampler,
         }};
         BindGroupDescriptor desc {
-            .layout = pipeline.GetBindGroupLayout(1),
+            .layout = skyboxMaterial.layout,
             .entryCount = entries.size(),
             .entries = entries.data(),
         };
-        materialBindGroup = device.CreateBindGroup(&desc);
-    }
-
-    void updateBuffers() {
-        queue.WriteBuffer(timeBuffer, 0, &time, sizeof(float));
+        skyboxMaterial.bindGroup = device.CreateBindGroup(&desc);
     }
 
     void render() {
-        // std::cout << time << '\n';
-        updateBuffers();
         updateGlobals();
-        updateCameraBuffer();
 
         CommandEncoderDescriptor commandEncoderDesc {};
         auto commandEncoder = device.CreateCommandEncoder(&commandEncoderDesc);
@@ -396,9 +396,9 @@ public:
         auto pass = commandEncoder.BeginRenderPass(&passDesc);
 
         pass.SetPipeline(pipeline);
-        pass.SetBindGroup(0, globalsBindGroup);
-        // pass.SetBindGroup(0, globals.bindGroup);
-        pass.SetBindGroup(1, materialBindGroup);
+        pass.SetBindGroup(0, globals.bindGroup);
+        // pass.SetBindGroup(1, materialBindGroup);
+        pass.SetBindGroup(1, skyboxMaterial.bindGroup);
         pass.Draw(3);
         pass.End();
 
