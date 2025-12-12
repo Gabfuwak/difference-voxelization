@@ -1,15 +1,20 @@
-#include <iostream>
+#pragma once
+
+#include <filesystem>
 #include <webgpu/webgpu_cpp.h>
 #include <webgpu/webgpu_cpp_print.h>
+#include <tiny_obj_loader.h>
 
-wgpu::Texture getSurfaceTexture(const wgpu::Surface& surface) {
-    wgpu::SurfaceTexture surfaceTexture {};
-    surface.GetCurrentTexture(&surfaceTexture);
+namespace utils {
 
-    if (surfaceTexture.status != wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal) {
-        std::cerr << "SurfaceGetCurrentTexture failed with status " << surfaceTexture.status;
-        throw std::runtime_error("WGPU Error");
-    }
+std::string readFile(const std::filesystem::path& path);
 
-    return surfaceTexture.texture;
-}
+std::filesystem::path findShaderPath(const std::filesystem::path& filename);
+
+std::filesystem::path findAssetPath(const std::filesystem::path& filename);
+
+tinyobj::ObjReader loadObjFile(const std::filesystem::path& file);
+
+size_t sizeofArray(const auto& c);
+
+} // namespace utils
