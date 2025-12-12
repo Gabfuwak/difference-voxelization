@@ -43,52 +43,52 @@ struct DetectionStats {
 
 std::vector<Ray> subdivideRay(const Ray& ray) {
     // Find orthogonal basis
-    Eigen::Vector3f perp = std::abs(ray.direction.z()) < 0.9f 
-        ? Eigen::Vector3f::UnitZ() 
+    Eigen::Vector3f perp = std::abs(ray.direction.z()) < 0.9f
+        ? Eigen::Vector3f::UnitZ()
         : Eigen::Vector3f::UnitX();
-    
+
     Eigen::Vector3f u = ray.direction.cross(perp).normalized();
     Eigen::Vector3f v = ray.direction.cross(u);  // Already unit length
-    
+
     float offset = ray.pixel_angular_size * 0.25f;
     float new_size = ray.pixel_angular_size * 0.5f;
-    
+
     std::vector<Ray> sub_rays(4);
     int idx = 0;
-    
+
     for (int i : {-1, 1}) {
         for (int j : {-1, 1}) {
             Eigen::Vector3f new_dir = ray.direction + (i * offset) * u + (j * offset) * v;
             sub_rays[idx++] = {ray.origin, new_dir.normalized(), ray.camera_id, new_size};
         }
     }
-    
+
     return sub_rays;
 }
 
 
-std::vector<Ray> generateRays(const scene::Camera& camera, 
+std::vector<Ray> generateRays(const scene::Camera& camera,
                                const std::vector<std::pair<float, float>>& pixels,
                                float screenWidth, float screenHeight, int camera_id) {
     Eigen::Matrix4f invViewProj = camera.getViewProjectionMatrix().inverse();
-    
+
     std::vector<Ray> rays;
     rays.reserve(pixels.size());
-    
+
     float fov_radians = camera.fov * (M_PI / 180.0f);
     float pixel_angular_size = fov_radians / screenWidth;
     for (const auto& [pixelX, pixelY] : pixels) {
         // Convert to NDC
         float ndcX = (2.0f * pixelX) / screenWidth - 1.0f;
         float ndcY = 1.0f - (2.0f * pixelY) / screenHeight;
-        
+
         Eigen::Vector4f clipCoords(ndcX, ndcY, 1.0f, 1.0f);
         Eigen::Vector4f worldCoords = invViewProj * clipCoords;
         Eigen::Vector3f worldPoint = worldCoords.head<3>() / worldCoords.w();
-        
+
         rays.push_back({camera.position, (worldPoint - camera.position).normalized(), camera_id, pixel_angular_size});
     }
-    
+
     return rays;
 }
 
@@ -96,19 +96,19 @@ std::vector<Ray> generateRays(const scene::Camera& camera,
 bool rayIntersectsVoxel(const Ray& ray, const Voxel& voxel) {
     float tmin = 0.0f;
     float tmax = std::numeric_limits<float>::infinity();
-    
+
     for (int i = 0; i < 3; ++i) {
         // Compute min and max from center + half_size
         float voxel_min = voxel.center[i] - voxel.half_size;
         float voxel_max = voxel.center[i] + voxel.half_size;
-        
+
         float t1 = (voxel_min - ray.origin[i]) / ray.direction[i];
         float t2 = (voxel_max - ray.origin[i]) / ray.direction[i];
-        
+
         tmin = std::max(tmin, std::min(t1, t2));
         tmax = std::min(tmax, std::max(t1, t2));
     }
-    
+
     return tmax >= tmin && tmax >= 0.0f;
 }
 
@@ -123,19 +123,19 @@ bool rayIntersectsVoxel(const Ray& ray, const Voxel& voxel) {
 float getRayEntryT(const Ray& ray, const Voxel& voxel) {
     float tmin = 0.0f;
     float tmax = std::numeric_limits<float>::infinity();
-    
+
     for (int i = 0; i < 3; ++i) {
         // Compute min and max from center + half_size
         float voxel_min = voxel.center[i] - voxel.half_size;
         float voxel_max = voxel.center[i] + voxel.half_size;
-        
+
         float t1 = (voxel_min - ray.origin[i]) / ray.direction[i];
         float t2 = (voxel_max - ray.origin[i]) / ray.direction[i];
-        
+
         tmin = std::max(tmin, std::min(t1, t2));
         tmax = std::min(tmax, std::max(t1, t2));
     }
-    
+
     if (tmax >= tmin && tmax >= 0.0f){
         return tmin;
     }else{
@@ -147,7 +147,7 @@ float getRayEntryT(const Ray& ray, const Voxel& voxel) {
 /**
  * Traverses a ray through an n×n×n grid inside target_voxel using DDA.
  * Returns a map from voxel index to the t value when the ray entered that voxel.
- * Key is the flattened index of the ray: 
+ * Key is the flattened index of the ray:
  */
 std::vector<std::pair<int, float>> traverseGrid(const Ray& ray, float t_entry, const Voxel& target_voxel, int n){
     float voxel_size = (target_voxel.half_size * 2) / n;
@@ -176,7 +176,7 @@ std::vector<std::pair<int, float>> traverseGrid(const Ray& ray, float t_entry, c
     curr_idx_vec = curr_idx_vec.cwiseMax(0).cwiseMin(n - 1);
 
     Eigen::Vector3f t_max;
-    
+
     // initial t_max
     for(int i = 0; i<3; ++i){
         float next_boundary_distance = 0;
@@ -187,7 +187,7 @@ std::vector<std::pair<int, float>> traverseGrid(const Ray& ray, float t_entry, c
         }
 
 
-        if(std::abs(ray.direction[i]) <= 0.00001f){ 
+        if(std::abs(ray.direction[i]) <= 0.00001f){
             t_max[i] = std::numeric_limits<float>::infinity();
         }else{
             t_max[i] = (next_boundary_distance - ray.origin[i]) / ray.direction[i];
@@ -198,15 +198,15 @@ std::vector<std::pair<int, float>> traverseGrid(const Ray& ray, float t_entry, c
     result.reserve(n * 3); // rough estimate
     float curr_t = t_entry;
 
-    while (curr_idx_vec.x() >= 0 && curr_idx_vec.x() < n 
-        && curr_idx_vec.y() >= 0 && curr_idx_vec.y() < n 
+    while (curr_idx_vec.x() >= 0 && curr_idx_vec.x() < n
+        && curr_idx_vec.y() >= 0 && curr_idx_vec.y() < n
         && curr_idx_vec.z() >= 0 && curr_idx_vec.z() < n) {
 
         // record curr voxel to result
         int idx = curr_idx_vec.x() + curr_idx_vec.y() * n + curr_idx_vec.z() * n * n;
         result.emplace_back(idx, curr_t);
 
-        
+
 
         int min_axis = 0;
         // Find which axis has smallest tMax (next boundary hit)
@@ -221,7 +221,7 @@ std::vector<std::pair<int, float>> traverseGrid(const Ray& ray, float t_entry, c
     }
 
     return result;
-    
+
 }
 
 
@@ -229,17 +229,17 @@ Voxel indexToVoxel(int idx, const Voxel& parent, int n) {
     int ix = idx % n;
     int iy = (idx / n) % n;
     int iz = idx / (n * n);
-    
+
     float child_half_size = parent.half_size / n;
     float voxel_size = parent.half_size * 2.0f / n;
     Eigen::Vector3f grid_min = parent.center - Eigen::Vector3f::Constant(parent.half_size);
-    
+
     Eigen::Vector3f child_center = grid_min + Eigen::Vector3f(
         (ix + 0.5f) * voxel_size,
         (iy + 0.5f) * voxel_size,
         (iz + 0.5f) * voxel_size
     );
-    
+
     return Voxel{child_center, child_half_size};
 }
 
@@ -278,10 +278,10 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
         float distance = t_entry;
         float ray_footprint = distance * ray.pixel_angular_size;
         float child_voxel_size = (target_zone.half_size * 2.0f) / subdiv_n;
-        
+
         std::vector<Ray> rays_to_process;
-        
-        float threshold = 0.2f;
+
+        float threshold = 1.0f;
         if (ray_footprint > child_voxel_size * threshold) { // if the ray is bigger than the voxel size, we subdivide to avoid missing intersections because of sampling
             stats.rays_subdivided++;
             stats.total_subrays_created += 3; // 4 new rays but net +3
@@ -293,7 +293,7 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
         for (const auto& r : rays_to_process) {
             float t = getRayEntryT(r, target_zone);
             if (t < 0) continue;  // skip if doesn't intersect
-            
+
             stats.intersection_checks++;
             std::vector<std::pair<int, float>> intersections = traverseGrid(r, t, target_zone, subdiv_n);
             stats.voxels_visited += intersections.size();
@@ -307,12 +307,12 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
     // Recurse for children with enough cameras
     for (int voxel_idx = 0; voxel_idx < total_cells; ++voxel_idx) {
         auto& child_rays = child_rays_map[voxel_idx];
-        
+
         if (child_rays.empty()) continue;
-        
+
         // Count unique cameras from the rays themselves
         std::unordered_set<int> cameras;
-        
+
         for (const auto& ray : child_rays) {
             cameras.insert(ray.camera_id);
         }
@@ -324,12 +324,12 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
     }
 }
 
-/** 
+/**
  * Returns a list of voxels in which there is a possible detection
  * Each returned voxel represents a quadrant of the initial voxel (octree)
  *
  * We cast a ray in the direction of all movements in the camera.
- * If multiple ray intersect with the same voxel, there is a detection in that voxel. 
+ * If multiple ray intersect with the same voxel, there is a detection in that voxel.
  * If we subdivide voxels enough, we will get a precise 3D location for the detection.
  *
  * Args:
@@ -369,7 +369,7 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
             movement_pixels.push_back({static_cast<float>(pt.x), static_cast<float>(pt.y)});
         }
 
-        auto rays = generateRays(frame.camera, movement_pixels, 
+        auto rays = generateRays(frame.camera, movement_pixels,
                                 frame.current_frame.cols, frame.current_frame.rows, cam_idx);
         all_rays.insert(all_rays.end(), rays.begin(), rays.end());
         stats.ray_count = all_rays.size();
@@ -397,8 +397,10 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
 
 
 
-    std::cout << "Subdivisions: " << stats.rays_subdivided 
+    std::cout << "Subdivisions: " << stats.rays_subdivided
           << ", Total subrays: " << stats.total_subrays_created << std::endl;
+
+    std::cout << "Ray count: " << stats.ray_count << '\n';
     return detections;
 
 }

@@ -187,7 +187,7 @@ public:
 
     void renderScene(const std::vector<scene::SceneObject>& objects,
                      const scene::Camera& camera,
-                     wgpu::TextureView depthView, wgpu::TextureView targetView = nullptr) {
+                     wgpu::TextureView depthView, wgpu::TextureView targetView = nullptr, bool imgui = false) {
 
         for (size_t i = 0; i < objects.size(); ++i) {
             const auto& obj = objects[i];
@@ -200,7 +200,7 @@ public:
             render(obj.mesh->vertexBuffer, obj.mesh->indexBuffer,
                    obj.mesh->indexCount, depthView, i == 0,
                    obj.material->bindGroup,  // ADD THIS
-                   targetView);
+                   targetView, imgui);
         }
     }
 
@@ -316,7 +316,7 @@ public:
         ctx->queue.Submit(1, &command);
     }
 
-    void renderImgui(wgpu::TextureView targetView, bool clear = false) {
+    void renderImgui(wgpu::TextureView depthView, wgpu::TextureView targetView, bool clear = false) {
         ImGui_ImplGlfw_NewFrame();
         ImGui_ImplWGPU_NewFrame();
         ImGui::NewFrame();
@@ -331,9 +331,16 @@ public:
             .clearValue = {0.5, 0.5, 0, 1},
         };
 
+        wgpu::RenderPassDepthStencilAttachment depthAttachment{};
+        depthAttachment.view = depthView;
+        depthAttachment.depthLoadOp = clear ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load;
+        depthAttachment.depthStoreOp = wgpu::StoreOp::Store;
+        depthAttachment.depthClearValue = 1.0f;
+
         wgpu::RenderPassDescriptor passDesc {
             .colorAttachmentCount = 1,
             .colorAttachments = &colorAttachment,
+            .depthStencilAttachment = &depthAttachment,
         };
         auto pass = commandEncoder.BeginRenderPass(&passDesc);
         ImGui::Render();
@@ -347,7 +354,7 @@ public:
 private:
 
     void render(wgpu::Buffer vertexBuffer, wgpu::Buffer indexBuffer,
-                uint32_t indexCount, wgpu::TextureView depthView, bool clear, wgpu::BindGroup materialBindGroup, wgpu::TextureView targetView = nullptr) {
+                uint32_t indexCount, wgpu::TextureView depthView, bool clear, wgpu::BindGroup materialBindGroup, wgpu::TextureView targetView = nullptr, bool imgui = false) {
 
         wgpu::TextureView colorView = targetView != nullptr ? targetView : targetTextureView;
 
@@ -376,6 +383,12 @@ private:
         pass.SetVertexBuffer(0, vertexBuffer);
         pass.SetIndexBuffer(indexBuffer, wgpu::IndexFormat::Uint16);
         pass.DrawIndexed(indexCount);
+
+        if (imgui) {
+            ImGui::Render();
+            ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), pass.Get());
+        }
+
         pass.End();
 
         wgpu::CommandBuffer commands = encoder.Finish();

@@ -21,6 +21,8 @@ public:
     uint32_t surfaceWidth;
     uint32_t surfaceHeight;
 
+    int activeCamera = 0;
+
     Window(uint32_t width, uint32_t height, const std::string& title)
         : width(width), height(height), title(title) {}
 
@@ -95,18 +97,28 @@ public:
     }
 
     void setCallbacks() {
-        auto closeShortcutsKeyCallback = [](GLFWwindow* window, int key, int scancode, int action, int mods) {
-            if (action != GLFW_PRESS) {
-                return;
-            }
-            if (key == GLFW_KEY_W && (mods & GLFW_MOD_SUPER)) {
-                glfwSetWindowShouldClose(window, GLFW_TRUE);
-            }
-            if (key == GLFW_KEY_C && (mods & GLFW_MOD_CONTROL)) {
-                glfwSetWindowShouldClose(window, GLFW_TRUE);
-            }
-        };
-        glfwSetKeyCallback(handle, closeShortcutsKeyCallback);
+        glfwSetWindowUserPointer(handle, this);
+        glfwSetKeyCallback(handle, keyCallback);
+    }
+
+private:
+    static void keyCallback(GLFWwindow* window, int key, int, int action, int) {
+        if (action != GLFW_PRESS) {
+            return;
+        }
+
+        auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
+        if (!self) {
+            return;
+        }
+
+        if (key >= GLFW_KEY_0 && key <= GLFW_KEY_9) {
+            self->activeCamera = key - GLFW_KEY_0;
+        }
+
+        if (key >= GLFW_KEY_KP_0 && key <= GLFW_KEY_KP_9) {
+            self->activeCamera = key - GLFW_KEY_KP_0;
+        }
     }
 };
 

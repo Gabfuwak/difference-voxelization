@@ -25,6 +25,9 @@ int main() {
         return 1;
     }
 
+    core::Window debugWindow(800, 600, "Debug");
+    debugWindow.create();
+    debugWindow.createSurface(ctx.instance, ctx.adapter, ctx.device);
 
     // Create dummy mask texture (1x1 white)
     wgpu::TextureDescriptor dummyMaskDesc{};
@@ -42,7 +45,12 @@ int main() {
     ctx.queue.WriteTexture(&destination, &whitePixel, 1, &dummyLayout, &writeSize);
     wgpu::TextureView dummyMaskView = dummyMaskTexture.CreateView();
 
-    core::Renderer renderer(&ctx, 800, 600);
+    int fbWidth, fbHeight;
+    glfwGetFramebufferSize(debugWindow.handle, &fbWidth, &fbHeight);
+    auto surfaceWidth = static_cast<uint32_t>(fbWidth);
+    auto surfaceHeight = static_cast<uint32_t>(fbHeight);
+
+    core::Renderer renderer(&ctx, surfaceWidth, surfaceHeight);
     renderer.createUniformBuffer(sizeof(float) * 16);
     renderer.createPipeline(SHADERS_DIR "unlit.wgsl");
 
@@ -152,7 +160,7 @@ int main() {
     };
 
     std::vector<scene::ObservationCamera> observers;
-    
+
     observers.push_back(makeObserver({0.0f, 2.0f, 200.0f}, {0.0f, 30.0f, 0.0f}));      // Center, eye level
     observers.push_back(makeObserver({-60.0f, 2.0f, 191.0f}, {0.0f, 30.0f, 0.0f}));   // Left side
     observers.push_back(makeObserver({60.0f, 2.0f, 191.0f}, {0.0f, 30.0f, 0.0f}));    // Right side
@@ -172,12 +180,6 @@ int main() {
     double total_error = 0.0;
     int frame_count = 0;
 
-
-
-    core::Window debugWindow(800, 600, "Debug");
-    debugWindow.create();
-    debugWindow.createSurface(ctx.instance, ctx.adapter, ctx.device);
-
     // Initialize ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -186,7 +188,7 @@ int main() {
     info.Device = ctx.device.Get();
     info.NumFramesInFlight = 3;
     info.RenderTargetFormat = static_cast<WGPUTextureFormat>(debugWindow.format);
-    info.DepthStencilFormat = static_cast<WGPUTextureFormat>(wgpu::TextureFormat::Undefined);
+    info.DepthStencilFormat = static_cast<WGPUTextureFormat>(wgpu::TextureFormat::Depth24Plus);
     ImGui_ImplWGPU_Init(&info);
 
     while (!debugWindow.shouldClose()) {
@@ -228,8 +230,6 @@ int main() {
         // renderer.clear()
         auto surfaceTextureView = debugWindow.getCurrentTextureView();
         // renderer.clear(surfaceTextureView);
-        renderer.renderImgui(surfaceTextureView);
-        debugWindow.present();
 
         Voxel target_zone = Voxel{{0.f, 0.f, 0.f}, // center
                                    250.f};       // half size
@@ -284,6 +284,68 @@ int main() {
                 if (i < observers.size() - 1) oss << ", ";
             }
             oss << std::endl;
+
+            if (debugWindow.activeCamera > 0) {
+                ImGui_ImplGlfw_NewFrame();
+                ImGui_ImplWGPU_NewFrame();
+                ImGui::NewFrame();
+
+                // Put ImGui calls right after this line
+                // example:
+                bool showDemoWindow = true;
+                ImGui::ShowDemoWindow(&showDemoWindow);
+
+                auto activeCamera = observers[debugWindow.activeCamera - 1].getCamera();
+                auto viewProjection = activeCamera.getViewProjectionMatrix();
+
+                {
+                    auto worldPos = objects[droneIndex].transform.position;
+                auto clipPos = viewProjection * Eigen::Vector4f(worldPos.x(), worldPos.y(), worldPos.z(), 1);
+                auto clipPosXy = Eigen::Vector2f(clipPos.x(), clipPos.y()) / clipPos.w();
+                // auto clipPosXy = Eigen::Vector2f(0, 0);
+
+                if (clipPos.w() > 0.0f && clipPosXy.x() >= -1.0f && clipPosXy.x() <= 1.0f &&
+                    clipPosXy.y() >= -1.0f && clipPosXy.y() <= 1.0f) {
+                    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+                    const ImVec2 screenPos {
+                        viewport->Pos.x + (clipPosXy.x() * 0.5f + 0.5f) * viewport->Size.x,
+                        viewport->Pos.y + (-clipPosXy.y() * 0.5f + 0.5f) * viewport->Size.y
+                    };
+                    constexpr float halfExtent = 10.0f;
+                    ImGui::GetForegroundDrawList()->AddRect(
+                        ImVec2(screenPos.x - halfExtent, screenPos.y - halfExtent),
+                        ImVec2(screenPos.x + halfExtent, screenPos.y + halfExtent),
+                        IM_COL32(255, 0, 0, 255));
+                }
+                }
+
+                {
+                    auto worldPos = centroid;
+                auto clipPos = viewProjection * Eigen::Vector4f(worldPos.x(), worldPos.y(), worldPos.z(), 1);
+                auto clipPosXy = Eigen::Vector2f(clipPos.x(), clipPos.y()) / clipPos.w();
+                // auto clipPosXy = Eigen::Vector2f(0, 0);
+
+                if (clipPos.w() > 0.0f && clipPosXy.x() >= -1.0f && clipPosXy.x() <= 1.0f &&
+                    clipPosXy.y() >= -1.0f && clipPosXy.y() <= 1.0f) {
+                    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+                    const ImVec2 screenPos {
+                        viewport->Pos.x + (clipPosXy.x() * 0.5f + 0.5f) * viewport->Size.x,
+                        viewport->Pos.y + (-clipPosXy.y() * 0.5f + 0.5f) * viewport->Size.y
+                    };
+                    constexpr float halfExtent = 10.0f;
+                    ImGui::GetForegroundDrawList()->AddRect(
+                        ImVec2(screenPos.x - halfExtent, screenPos.y - halfExtent),
+                        ImVec2(screenPos.x + halfExtent, screenPos.y + halfExtent),
+                        IM_COL32(0, 0, 255, 255));
+                }
+                }
+
+                renderer.renderScene(objects, observers[debugWindow.activeCamera - 1].getCamera(), depthView, surfaceTextureView, true);
+            } else {
+                renderer.renderImgui(depthView, surfaceTextureView);
+            }
+            debugWindow.present();
+
         }
 
 
