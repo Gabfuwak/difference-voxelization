@@ -359,7 +359,7 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
         cv::Mat binary;
         int threshold = 5;
         cv::threshold(diff, binary, threshold, 255, cv::THRESH_BINARY);
-        cv::imshow("Camera " + std::to_string(&frame - &camera_frames[0]) + " Diff", diff);
+        //cv::imshow("Camera " + std::to_string(&frame - &camera_frames[0]) + " Diff", diff);
 
     // Get camera rays from all pixels where movement is detected by the temporal image difference
         std::vector<std::pair<float, float>> movement_pixels;
