@@ -205,97 +205,6 @@ public:
     }
 
 
-    cv::Mat captureFrame() {
-        // Calculate buffer size with padding
-        uint32_t bytesPerRow = width * 4;  // RGBA = 4 bytes per pixel
-        uint32_t paddedBytesPerRow = (bytesPerRow + 255) & ~255;  // Align to 256
-        uint32_t bufferSize = paddedBytesPerRow * height;
-
-        // Create staging buffer for reading
-        wgpu::BufferDescriptor bufferDesc{};
-        bufferDesc.label = "Staging buffer";
-        bufferDesc.size = bufferSize;
-        bufferDesc.usage = wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::MapRead;
-        wgpu::Buffer stagingBuffer = ctx->device.CreateBuffer(&bufferDesc);
-
-        // Create command encoder to copy texture to buffer
-        wgpu::CommandEncoder encoder = ctx->device.CreateCommandEncoder();
-
-        // Source: texture
-        wgpu::TexelCopyTextureInfo source{};
-        source.texture = targetTexture;
-        source.mipLevel = 0;
-        source.origin = {0, 0, 0};
-        source.aspect = wgpu::TextureAspect::All;
-
-        // Destination: buffer with layout
-        wgpu::TexelCopyBufferLayout layout{};
-        layout.offset = 0;
-        layout.bytesPerRow = paddedBytesPerRow;
-        layout.rowsPerImage = height;
-
-        wgpu::TexelCopyBufferInfo destination{};
-        destination.buffer = stagingBuffer;
-        destination.layout = layout;
-
-        wgpu::Extent3D copySize = {width, height, 1};
-        encoder.CopyTextureToBuffer(&source, &destination, &copySize);
-
-        // Submit copy command
-        wgpu::CommandBuffer commands = encoder.Finish();
-        ctx->queue.Submit(1, &commands);
-
-        // Wait for GPU work to complete before mapping
-        bool workDone = false;
-        ctx->queue.OnSubmittedWorkDone(
-            wgpu::CallbackMode::AllowProcessEvents,
-            [&workDone](wgpu::QueueWorkDoneStatus status, wgpu::StringView /*message*/) {
-                workDone = true;
-            }
-        );
-
-        while (!workDone) {
-            ctx->instance.ProcessEvents();
-        }
-
-        // Map buffer
-        bool mapped = false;
-        stagingBuffer.MapAsync(
-            wgpu::MapMode::Read,
-            0,
-            bufferSize,
-            wgpu::CallbackMode::AllowProcessEvents,
-            [&mapped](wgpu::MapAsyncStatus status, wgpu::StringView /*message*/) {
-                mapped = (status == wgpu::MapAsyncStatus::Success);
-            }
-        );
-
-        while (!mapped) {
-            ctx->instance.ProcessEvents();
-        }
-
-        // Get mapped data
-        const uint8_t* data = static_cast<const uint8_t*>(
-            stagingBuffer.GetConstMappedRange(0, bufferSize));
-
-        // Create OpenCV Mat (RGBA format)
-        cv::Mat image(height, width, CV_8UC4);
-
-        // Copy data row by row (handling padding)
-        for (uint32_t y = 0; y < height; ++y) {
-            memcpy(image.ptr(y), data + y * paddedBytesPerRow, bytesPerRow);
-        }
-
-        // Unmap buffer
-        stagingBuffer.Unmap();
-
-        // Convert RGBA to BGR for OpenCV
-        cv::Mat bgr;
-        cv::cvtColor(image, bgr, cv::COLOR_RGBA2BGR);
-
-        return bgr;
-    }
-
     void clear(wgpu::TextureView targetView) {
         auto commandEncoder = ctx->device.CreateCommandEncoder();
         wgpu::RenderPassColorAttachment colorAttachment {
@@ -317,18 +226,12 @@ public:
     }
 
     void renderImgui(wgpu::TextureView depthView, wgpu::TextureView targetView, bool clear = false) {
-        ImGui_ImplGlfw_NewFrame();
-        ImGui_ImplWGPU_NewFrame();
-        ImGui::NewFrame();
-        bool showDemoWindow = true;
-        ImGui::ShowDemoWindow(&showDemoWindow);
-
         auto commandEncoder = ctx->device.CreateCommandEncoder();
         wgpu::RenderPassColorAttachment colorAttachment {
             .view = targetView,
             .loadOp = clear ? wgpu::LoadOp::Clear : wgpu::LoadOp::Load,
             .storeOp = wgpu::StoreOp::Store,
-            .clearValue = {0.5, 0.5, 0, 1},
+            .clearValue = {0.1, 0.1, 0.1, 1.0},
         };
 
         wgpu::RenderPassDepthStencilAttachment depthAttachment{};
@@ -343,13 +246,16 @@ public:
             .depthStencilAttachment = &depthAttachment,
         };
         auto pass = commandEncoder.BeginRenderPass(&passDesc);
+        
         ImGui::Render();
         ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), pass.Get());
+        
         pass.End();
 
         auto command = commandEncoder.Finish();
         ctx->queue.Submit(1, &command);
     }
+    
 
 private:
 

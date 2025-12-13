@@ -281,8 +281,8 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
 
         std::vector<Ray> rays_to_process;
 
-        float threshold = 1.0f;
-        if (ray_footprint > child_voxel_size * threshold) { // if the ray is bigger than the voxel size, we subdivide to avoid missing intersections because of sampling
+        float threshold = 2.0f;
+        if (ray_footprint > child_voxel_size * threshold && depth > 1) { // if the ray is bigger than the voxel size, we subdivide to avoid missing intersections because of sampling
             stats.rays_subdivided++;
             stats.total_subrays_created += 3; // 4 new rays but net +3
             rays_to_process = subdivideRay(ray);

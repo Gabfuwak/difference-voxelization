@@ -5,6 +5,7 @@
 
 #include "core/context.hpp"
 #include "core/renderer.hpp"
+#include "core/multi_camera_capture.hpp"
 #include "core/window.hpp"
 #include "scene/scene_object.hpp"
 #include "scene/observation_camera.hpp"
@@ -101,7 +102,7 @@ int main() {
         scene::Mesh::createCube(ctx.device, ctx.queue));
 
     scene::Transform droneTransform;
-        droneTransform.scale = Eigen::Vector3f(0.2f, 0.2f, 0.2f);
+        droneTransform.scale = Eigen::Vector3f(0.5f, 0.5f, 0.5f);
         objects.push_back({droneMesh, droneTransform, defaultMaterial});
 
     size_t droneIndex = objects.size() - 1;  // remember index for animation
@@ -143,7 +144,7 @@ int main() {
     auto insectMesh = std::make_shared<scene::Mesh>(scene::Mesh::createCube(ctx.device, ctx.queue));
 
     scene::InsectSwarmConfig insectConfig{
-        .count = 0,
+        .count = 10,
         .distance = 2.0f,
         .spread = 3.0f,
         .zoneHalfSize = 2.0f,
@@ -172,10 +173,13 @@ int main() {
     addTree(-40.0f, 175.0f);
     addTree(40.0f, 175.0f);
 
+    core::MultiCameraCapture capture(&ctx, observers.size(), 800, 600);
+    std::vector<cv::Mat> previousFrames(observers.size());
 
 
 
-    float time = 0.0f;
+
+    float curr_simulation_time = 0.0f;
     double avg_detection_time = 0.0;
     double total_error = 0.0;
     int frame_count = 0;
@@ -191,11 +195,15 @@ int main() {
     info.DepthStencilFormat = static_cast<WGPUTextureFormat>(wgpu::TextureFormat::Depth24Plus);
     ImGui_ImplWGPU_Init(&info);
 
+    
     while (!debugWindow.shouldClose()) {
-    //while (time <= 0.02) {
+    //while(time <= 0.02) {
         glfwPollEvents();
 
-        time += 0.016f;
+        double curr_real_time = glfwGetTime();
+        frame_count++;
+
+        curr_simulation_time += 0.016f; 
 
         // Drone flies in circle: 50m radius, 30m height
         float radius = 50.0f;
@@ -203,169 +211,122 @@ int main() {
         float speed = 2.f;
 
         objects[droneIndex].transform.position = Eigen::Vector3f(
-            radius * std::cos(time * speed),
+            radius * std::cos(curr_simulation_time * speed),
             height,
-            radius * std::sin(time * speed)
+            radius * std::sin(curr_simulation_time * speed)
         );
-
-
-        objects[droneIndex].transform.setEulerAngles(0.0f, -time * speed, 0.0f);
-
-
+        objects[droneIndex].transform.setEulerAngles(0.0f, -curr_simulation_time * speed, 0.0f);
 
         for (auto& observer : observers) {
             observer.update();
         }
 
+        // Collect cameras
+        std::vector<scene::Camera> cameras;
+        cameras.reserve(observers.size());
+        for (auto& observer : observers) {
+            cameras.push_back(observer.getCamera());
+        }
+
+        // Gather all objects including insects from all observers
+        std::vector<scene::SceneObject> allObjects = objects;
+        for (auto& observer : observers) {
+            const auto& insects = observer.getInsects();
+            allObjects.insert(allObjects.end(), insects.begin(), insects.end());
+        }
+
+        // Render all frames in parallel
+        capture.renderAll(cameras, allObjects, renderer);
+        capture.copyAll();
+        capture.sync();
+        std::vector<cv::Mat> currentFrames = capture.readAll();
+
+        // Build CameraFrame array
         std::vector<CameraFrame> frames;
         frames.reserve(observers.size());
         for (size_t i = 0; i < observers.size(); ++i) {
-            frames.push_back(observers[i].captureFrame(
-                renderer, objects, depthView,
-                "Camera " + std::to_string(i)
-            ));
+            frames.push_back({
+                cameras[i],
+                currentFrames[i],
+                previousFrames[i].empty() ? currentFrames[i] : previousFrames[i]
+            });
+            previousFrames[i] = currentFrames[i].clone();
         }
 
-        // renderer.renderScene(objects, observers[0].getCamera(), depthView, debugWindow.getCurrentTextureView());
-        // renderer.clear()
-        auto surfaceTextureView = debugWindow.getCurrentTextureView();
-        // renderer.clear(surfaceTextureView);
-
-        Voxel target_zone = Voxel{{0.f, 0.f, 0.f}, // center
-                                   250.f};       // half size
-
-        float min_voxel_size = 0.02; // cube is 0.5 large
-        size_t min_ray_threshold = 3; // at least 3 rays for detection
-
+        // Detection
+        Voxel target_zone = Voxel{{0.f, 0.f, 0.f}, 250.f};
+        float min_voxel_size = 0.1f;
+        size_t min_ray_threshold = 3;
 
         auto start = std::chrono::high_resolution_clock::now();
         auto detections = detect_objects(target_zone, frames, min_voxel_size, min_ray_threshold, 8);
-
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 
-        frame_count++;
         avg_detection_time += (duration.count() - avg_detection_time) / frame_count;
 
-        std::ostringstream oss;
-
-        oss << "Detection time: " << duration.count() << " µs (avg: "
-                  << avg_detection_time << " µs)" << std::endl;
-
-
-        oss << "Frame " << time << " - Detections: " << detections.size() << std::endl;
+        // Compute centroid (even if empty, for safe debug rendering)
+        Eigen::Vector3f centroid(0, 0, 0);
         if (!detections.empty()) {
-            Eigen::Vector3f centroid(0, 0, 0);
             for (const auto& det : detections) {
                 centroid += det.center;
             }
             centroid /= detections.size();
 
-            oss << "  Detection centroid: ("
-                      << centroid.x() << ", "
-                      << centroid.y() << ", "
-                      << centroid.z() << ")" << std::endl;
-
             auto error = (centroid - objects[droneIndex].transform.position).norm();
             total_error += error;
-            oss << "Error: " << error << "(avg:"<< total_error / frame_count<<" )" << std::endl;
-
-
-
-            oss << "Actual drone position:("
-                << objects[droneIndex].transform.position.x() << ", "
-                << objects[droneIndex].transform.position.y() << ", "
-                << objects[droneIndex].transform.position.z() << ")" << std::endl;
-
-            oss << "Camera distances: ";
-            for (size_t i = 0; i < observers.size(); ++i) {
-                float dist = (objects[droneIndex].transform.position - observers[i].getCamera().position).norm();
-                oss << dist << "m";
-                if (i < observers.size() - 1) oss << ", ";
-            }
-            oss << std::endl;
-
-            if (debugWindow.activeCamera > 0) {
-                ImGui_ImplGlfw_NewFrame();
-                ImGui_ImplWGPU_NewFrame();
-                ImGui::NewFrame();
-
-                // Put ImGui calls right after this line
-                // example:
-                bool showDemoWindow = true;
-                ImGui::ShowDemoWindow(&showDemoWindow);
-
-                auto activeCamera = observers[debugWindow.activeCamera - 1].getCamera();
-                auto viewProjection = activeCamera.getViewProjectionMatrix();
-
-                {
-                    auto worldPos = objects[droneIndex].transform.position;
-                auto clipPos = viewProjection * Eigen::Vector4f(worldPos.x(), worldPos.y(), worldPos.z(), 1);
-                auto clipPosXy = Eigen::Vector2f(clipPos.x(), clipPos.y()) / clipPos.w();
-                // auto clipPosXy = Eigen::Vector2f(0, 0);
-
-                if (clipPos.w() > 0.0f && clipPosXy.x() >= -1.0f && clipPosXy.x() <= 1.0f &&
-                    clipPosXy.y() >= -1.0f && clipPosXy.y() <= 1.0f) {
-                    const ImGuiViewport* viewport = ImGui::GetMainViewport();
-                    const ImVec2 screenPos {
-                        viewport->Pos.x + (clipPosXy.x() * 0.5f + 0.5f) * viewport->Size.x,
-                        viewport->Pos.y + (-clipPosXy.y() * 0.5f + 0.5f) * viewport->Size.y
-                    };
-                    constexpr float halfExtent = 10.0f;
-                    ImGui::GetForegroundDrawList()->AddRect(
-                        ImVec2(screenPos.x - halfExtent, screenPos.y - halfExtent),
-                        ImVec2(screenPos.x + halfExtent, screenPos.y + halfExtent),
-                        IM_COL32(255, 0, 0, 255));
-                }
-                }
-
-                {
-                    auto worldPos = centroid;
-                auto clipPos = viewProjection * Eigen::Vector4f(worldPos.x(), worldPos.y(), worldPos.z(), 1);
-                auto clipPosXy = Eigen::Vector2f(clipPos.x(), clipPos.y()) / clipPos.w();
-                // auto clipPosXy = Eigen::Vector2f(0, 0);
-
-                if (clipPos.w() > 0.0f && clipPosXy.x() >= -1.0f && clipPosXy.x() <= 1.0f &&
-                    clipPosXy.y() >= -1.0f && clipPosXy.y() <= 1.0f) {
-                    const ImGuiViewport* viewport = ImGui::GetMainViewport();
-                    const ImVec2 screenPos {
-                        viewport->Pos.x + (clipPosXy.x() * 0.5f + 0.5f) * viewport->Size.x,
-                        viewport->Pos.y + (-clipPosXy.y() * 0.5f + 0.5f) * viewport->Size.y
-                    };
-                    constexpr float halfExtent = 10.0f;
-                    ImGui::GetForegroundDrawList()->AddRect(
-                        ImVec2(screenPos.x - halfExtent, screenPos.y - halfExtent),
-                        ImVec2(screenPos.x + halfExtent, screenPos.y + halfExtent),
-                        IM_COL32(0, 0, 255, 255));
-                }
-                }
-
-                renderer.renderScene(objects, observers[debugWindow.activeCamera - 1].getCamera(), depthView, surfaceTextureView, true);
-            } else {
-                renderer.renderImgui(depthView, surfaceTextureView);
-            }
-            debugWindow.present();
-
         }
 
+        // Debug window rendering (always runs)
+        auto surfaceTextureView = debugWindow.getCurrentTextureView();
+        
+        ImGui_ImplGlfw_NewFrame();
+        ImGui_ImplWGPU_NewFrame();
+        ImGui::NewFrame();
 
+        ImGui::Begin("Stats");
+        ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+        ImGui::Text("Detection time: %.2f ms", avg_detection_time / 1000.0);
+        ImGui::Text("Detections: %zu", detections.size());
+        ImGui::Text("Error: %.3f m", (centroid - objects[droneIndex].transform.position).norm());
+        ImGui::End();
 
+        if (debugWindow.activeCamera > 0 && debugWindow.activeCamera <= static_cast<int>(observers.size())) {
+            auto activeCamera = observers[debugWindow.activeCamera - 1].getCamera();
+            auto viewProjection = activeCamera.getViewProjectionMatrix();
 
-        oss << "---" << std::endl;
+            // Draw ground truth (red)
+            auto drawMarker = [&](const Eigen::Vector3f& worldPos, ImU32 color) {
+                auto clipPos = viewProjection * Eigen::Vector4f(worldPos.x(), worldPos.y(), worldPos.z(), 1);
+                if (clipPos.w() <= 0.0f) return;
+                
+                auto clipPosXy = Eigen::Vector2f(clipPos.x(), clipPos.y()) / clipPos.w();
+                if (clipPosXy.x() < -1.0f || clipPosXy.x() > 1.0f ||
+                    clipPosXy.y() < -1.0f || clipPosXy.y() > 1.0f) return;
 
-        std::cout << oss.str();
+                const ImGuiViewport* viewport = ImGui::GetMainViewport();
+                const ImVec2 screenPos {
+                    viewport->Pos.x + (clipPosXy.x() * 0.5f + 0.5f) * viewport->Size.x,
+                    viewport->Pos.y + (-clipPosXy.y() * 0.5f + 0.5f) * viewport->Size.y
+                };
+                constexpr float halfExtent = 10.0f;
+                ImGui::GetForegroundDrawList()->AddRect(
+                    ImVec2(screenPos.x - halfExtent, screenPos.y - halfExtent),
+                    ImVec2(screenPos.x + halfExtent, screenPos.y + halfExtent),
+                    color);
+            };
 
-        if (cv::waitKey(1) == 27) break;
+            drawMarker(objects[droneIndex].transform.position, IM_COL32(255, 0, 0, 255));  // Red: ground truth
+            if (!detections.empty()) {
+                drawMarker(centroid, IM_COL32(0, 0, 255, 255));  // Blue: detection
+            }
 
-        // wgpu::CommandEncoderDescriptor commandEncoderDesc {.label = "copy"};
-        // auto commandEncoder = ctx.device.CreateCommandEncoder(&commandEncoderDesc);
-        // wgpu::TexelCopyTextureInfo source {.texture = renderer.targetTexture};
-        // wgpu::TexelCopyTextureInfo destination {.texture = debugWindow.getCurrentTexture()};
-        // wgpu::Extent3D copySize {800, 600};
-        // commandEncoder.CopyTextureToTexture(&source, &destination, &copySize);
-        // std::array commands {commandEncoder.Finish()};
-        // ctx.queue.Submit(commands.size(), commands.data());
+            renderer.renderScene(allObjects, activeCamera, depthView, surfaceTextureView, true);
+        } else {
+            renderer.renderImgui(depthView, surfaceTextureView, true);  // clear=true since no scene rendered
+        }
 
+        debugWindow.present();
         ctx.processEvents();
     }
 
