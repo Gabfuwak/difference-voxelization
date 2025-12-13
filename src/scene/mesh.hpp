@@ -216,6 +216,93 @@ public:
         mesh.upload(device, queue, vertices, indices);
         return mesh;
     }
+
+
+    static Mesh createWireframeCube(wgpu::Device device, wgpu::Queue queue, float thickness = 0.02f) {
+        std::vector<Vertex> vertices;
+        std::vector<uint16_t> indices;
+        
+        // Helper to add a box (thin rectangular prism) 
+        // centered at (cx, cy, cz) with dimensions (sx, sy, sz)
+        auto addBox = [&](float cx, float cy, float cz, float sx, float sy, float sz) {
+            uint16_t base = static_cast<uint16_t>(vertices.size());
+            float hx = sx / 2, hy = sy / 2, hz = sz / 2;
+            
+            // 8 corners of the box
+            float x0 = cx - hx, x1 = cx + hx;
+            float y0 = cy - hy, y1 = cy + hy;
+            float z0 = cz - hz, z1 = cz + hz;
+            
+            // All white - material will provide color
+            const float c[3] = {1.0f, 1.0f, 1.0f};
+            const float uv[2] = {0.0f, 0.0f};
+            
+            // 24 vertices (4 per face, 6 faces)
+            // Front (+Z)
+            vertices.push_back({{x0, y0, z1}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x1, y0, z1}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x1, y1, z1}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x0, y1, z1}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            // Back (-Z)
+            vertices.push_back({{x1, y0, z0}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x0, y0, z0}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x0, y1, z0}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x1, y1, z0}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            // Top (+Y)
+            vertices.push_back({{x0, y1, z1}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x1, y1, z1}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x1, y1, z0}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x0, y1, z0}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            // Bottom (-Y)
+            vertices.push_back({{x0, y0, z0}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x1, y0, z0}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x1, y0, z1}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x0, y0, z1}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            // Right (+X)
+            vertices.push_back({{x1, y0, z1}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x1, y0, z0}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x1, y1, z0}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x1, y1, z1}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            // Left (-X)
+            vertices.push_back({{x0, y0, z0}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x0, y0, z1}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x0, y1, z1}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            vertices.push_back({{x0, y1, z0}, {c[0], c[1], c[2]}, {uv[0], uv[1]}});
+            
+            // 36 indices (6 per face)
+            for (uint16_t face = 0; face < 6; ++face) {
+                uint16_t f = base + face * 4;
+                indices.insert(indices.end(), {f, uint16_t(f+1), uint16_t(f+2), f, uint16_t(f+2), uint16_t(f+3)});
+            }
+        };
+        
+        float t = thickness;
+        
+        // 4 edges along X axis
+        for (float y : {-0.5f, 0.5f}) {
+            for (float z : {-0.5f, 0.5f}) {
+                addBox(0, y, z, 1.0f, t, t);
+            }
+        }
+        
+        // 4 edges along Y axis
+        for (float x : {-0.5f, 0.5f}) {
+            for (float z : {-0.5f, 0.5f}) {
+                addBox(x, 0, z, t, 1.0f, t);
+            }
+        }
+        
+        // 4 edges along Z axis
+        for (float x : {-0.5f, 0.5f}) {
+            for (float y : {-0.5f, 0.5f}) {
+                addBox(x, y, 0, t, t, 1.0f);
+            }
+        }
+        
+        Mesh mesh;
+        mesh.upload(device, queue, vertices, indices);
+        return mesh;
+    }
 };
 
 } // namespace scene

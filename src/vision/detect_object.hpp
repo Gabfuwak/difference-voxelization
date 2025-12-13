@@ -35,11 +35,15 @@ struct RayDebugInfo {
     bool contributed_to_detection;
 };
 
+struct VoxelDebugInfo {
+    Voxel voxel;
+    bool is_detection;
+    int depth;
+};
+
 struct DebugVisualization {
-    
     std::vector<RayDebugInfo> rays;
-    
-    // TODO: Add voxel info later
+    std::vector<VoxelDebugInfo> voxels;
 };
 
 struct DetectionStats {
@@ -260,7 +264,9 @@ Voxel indexToVoxel(int idx, const Voxel& parent, int n) {
  *
  *
  */
-void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, float min_voxel_size, size_t min_ray_threshold, std::vector<Voxel>& detections,DetectionStats& stats, int subdiv_n, int depth = 0){
+void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, float min_voxel_size, size_t min_ray_threshold, std::vector<Voxel>& detections,DetectionStats& stats, DebugVisualization& debug_viz, int subdiv_n, int depth = 0){
+
+    debug_viz.voxels.push_back({target_zone, false, depth});
 
     stats.nodes_visited++;
     stats.total_depth += depth;
@@ -270,6 +276,7 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
     if (current_size <= min_voxel_size) {
         // No need to check ray voxel intersection because if it wasn't intersecting the recursion would not be called on this voxel
         detections.push_back(target_zone);
+        debug_viz.voxels[debug_viz.voxels.size() - 1].is_detection = true;
         return;
     }
 
@@ -331,7 +338,7 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
 
         if (cameras.size() >= min_ray_threshold) {
             Voxel child = indexToVoxel(voxel_idx, target_zone, subdiv_n);
-            recursive_detection(child, child_rays, min_voxel_size, min_ray_threshold, detections, stats, subdiv_n, depth + 1);
+            recursive_detection(child, child_rays, min_voxel_size, min_ray_threshold, detections, stats, debug_viz, subdiv_n, depth + 1);
         }
     }
 }
@@ -416,8 +423,10 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
     */
 
     // populate detections
-    recursive_detection(target_zone, all_rays, min_voxel_size, min_ray_threshold, detections, stats, subdiv_n, 0);
 
+    DebugVisualization dummy_viz;
+    DebugVisualization& viz_ref = debug_viz ? *debug_viz : dummy_viz;
+    recursive_detection(target_zone, all_rays, min_voxel_size, min_ray_threshold, detections, stats, viz_ref, subdiv_n, 0);
 
     if (debug_viz && !detections.empty()) {
         for (auto& ray_info : debug_viz->rays) {

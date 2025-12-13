@@ -133,6 +133,20 @@ int main() {
     size_t droneIndex = objects.size() - 1;  // remember index for animation
     
 
+    // Debug voxel visualization mesh (wireframe cube)
+    auto voxelWireframeMesh = std::make_shared<scene::Mesh>(
+        scene::Mesh::createWireframeCube(ctx.device, ctx.queue, 0.02f));
+
+    // Voxel debug materials
+    auto visitedVoxelMaterial = std::make_shared<Material>(
+        Material::createColored(ctx.device, ctx.queue, Eigen::Vector3f(0.5f, 0.5f, 0.5f)));  // Gray
+    visitedVoxelMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout,
+                                          renderer.uniformBuffer, dummyMaskView);
+
+    auto detectionVoxelMaterial = std::make_shared<Material>(
+        Material::createColored(ctx.device, ctx.queue, Eigen::Vector3f(0.0f, 1.0f, 0.0f)));  // Green
+    detectionVoxelMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout,
+                                            renderer.uniformBuffer, dummyMaskView);
 
     // Debug ray visualization mesh (thin stretched cube)
     auto rayLineMesh = std::make_shared<scene::Mesh>(
@@ -234,6 +248,7 @@ int main() {
 
 
     bool show_debug_viz = false;
+    static int minVoxelDepth = 3;
     DebugVisualization debug_viz;
 
 
@@ -259,6 +274,7 @@ int main() {
         glfwPollEvents();
         if (show_debug_viz) {
             debug_viz.rays.clear();
+            debug_viz.voxels.clear();
         }
 
         double curr_real_time = glfwGetTime();
@@ -385,6 +401,17 @@ int main() {
                 } 
 
             }
+
+            for (const auto& voxel_info : debug_viz.voxels) {
+                if (voxel_info.depth < minVoxelDepth) continue;
+                scene::Transform voxelTransform;
+                voxelTransform.position = voxel_info.voxel.center;
+                float size = voxel_info.voxel.half_size * 2.0f;
+                voxelTransform.scale = Eigen::Vector3f(size, size, size);
+                
+                auto& material = voxel_info.is_detection ? detectionVoxelMaterial : visitedVoxelMaterial;
+                debugObjects.push_back({voxelWireframeMesh, voxelTransform, material});
+            }
         }
 
         // Debug window rendering (always runs)
@@ -400,6 +427,7 @@ int main() {
         ImGui::Text("Detection time: %.2f ms", avg_detection_time / 1000.0);
         ImGui::Text("Detections: %zu", detections.size());
         ImGui::Text("Error: %.3f m", (centroid - objects[droneIndex].transform.position).norm());
+        ImGui::SliderInt("Min Voxel Depth", &minVoxelDepth, 0, 10);
         ImGui::End();
 
         if (debugWindow.activeCamera > 0 && debugWindow.activeCamera <= static_cast<int>(observers.size())) {
