@@ -1,16 +1,11 @@
+
 #include <iostream>
 #include <sstream>
 #include <vector>
 #include <GLFW/glfw3.h>
 
-#include "core/context.hpp"
-#include "core/renderer.hpp"
-#include "core/multi_camera_capture.hpp"
-#include "core/window.hpp"
-#include "scene/scene_object.hpp"
-#include "scene/observation_camera.hpp"
-#include "vision/detect_object.hpp"
-#include "vision/cluster_detections.hpp"
+
+
 #include "webgpu/webgpu.h"
 #include "webgpu/webgpu_cpp.h"
 #include <opencv2/opencv.hpp>
@@ -20,6 +15,19 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_wgpu.h"
 
+#include "core/context.hpp"
+#include "core/renderer.hpp"
+#include "core/multi_camera_capture.hpp"
+#include "core/window.hpp"
+
+#include "scene/scene_object.hpp"
+#include "scene/observation_camera.hpp"
+
+#include "vision/detect_object.hpp"
+#include "vision/cluster_detections.hpp"
+#include "vision/track_clusters.hpp"
+
+
 int main() {
     core::Context ctx;
     if (!ctx.initialize()) {
@@ -27,7 +35,7 @@ int main() {
         return 1;
     }
 
-    core::Window debugWindow(800, 600, "Debug");
+    core::Window debugWindow(1920, 1080, "Debug");
     debugWindow.create();
     debugWindow.createSurface(ctx.instance, ctx.adapter, ctx.device);
 
@@ -252,6 +260,8 @@ int main() {
     static int minVoxelDepth = 3;
     DebugVisualization debug_viz;
 
+    ClusterTracker tracker;
+
 
     float curr_simulation_time = 0.0f;
     double avg_detection_time = 0.0;
@@ -345,28 +355,22 @@ int main() {
         auto clusters = clusterDetections(detections, min_voxel_size);
 
 
+        tracker.update(clusters, frame_count);
+
+        auto confirmed_tracks = tracker.getConfirmedTracks();
+
+
 
         avg_detection_time += (duration.count() - avg_detection_time) / frame_count;
 
 
-
         // Compute centroid (even if empty, for safe debug rendering)
-        Eigen::Vector3f centroid(0, 0, 0);
-        if (!clusters.empty()) {
-            for (const auto& det : clusters) {
-                centroid += det.centroid;
-            }
-            centroid /= detections.size();
-
-            auto error = (centroid - objects[droneIndex].transform.position).norm();
-            total_error += error;
-        }
 
         // Build debug visualization objects
         std::vector<scene::SceneObject> debugObjects;
         if (show_debug_viz) {
             float rayLength = 1000.0f;
-            float rayThickness = 0.01f;
+            float rayThickness = 0.1f;
 
             // Limit to avoid GPU overload
             const size_t MAX_DEBUG_RAYS = 500;
@@ -430,12 +434,20 @@ int main() {
         ImGui::Text("Detection time: %.2f ms", avg_detection_time / 1000.0);
         ImGui::Text("Detections: %zu", detections.size());
         ImGui::Text("Clusters: %zu", clusters.size());
-        ImGui::Text("Error: %.3f m", (centroid - objects[droneIndex].transform.position).norm());
+        if (!confirmed_tracks.empty()) {
+            auto tracked_position = confirmed_tracks[0]->positions.back().position;
+            auto error = (tracked_position - objects[droneIndex].transform.position).norm();
+            total_error += error;
+            ImGui::Text("Error: %.3f m", error);
+        } else {
+            ImGui::Text("Error: no track");
+        }
         ImGui::SliderInt("Min Voxel Depth", &minVoxelDepth, 0, 10);
         ImGui::End();
 
         if (debugWindow.activeCamera > 0 && debugWindow.activeCamera <= static_cast<int>(observers.size())) {
             auto activeCamera = observers[debugWindow.activeCamera - 1].getCamera();
+#ifdef Debug
             auto viewProjection = activeCamera.getViewProjectionMatrix();
 
             // Draw ground truth (red)
@@ -458,7 +470,6 @@ int main() {
                     ImVec2(screenPos.x + halfExtent, screenPos.y + halfExtent),
                     color);
             };
-
             drawMarker(objects[droneIndex].transform.position, IM_COL32(255, 0, 0, 255));  // Red: ground truth
             if (!detections.empty()) {
                 for(auto cluster : clusters){
@@ -466,7 +477,7 @@ int main() {
                     drawMarker(centroid, IM_COL32(0, 0, 255, 255));  // Blue: detection
                 }
             }
-
+#endif
             std::vector<scene::SceneObject> renderObjects = allObjects;
             if (show_debug_viz) {
                 renderObjects.insert(renderObjects.end(), debugObjects.begin(), debugObjects.end());
