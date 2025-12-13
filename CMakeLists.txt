@@ -8,6 +8,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
 
 include(cmake/dawn.cmake)
 include(cmake/imgui.cmake)
+add_subdirectory("external/glm")
 
 find_package(Eigen3 REQUIRED)
 find_package(OpenCV REQUIRED)
@@ -28,6 +29,7 @@ target_link_libraries(main PRIVATE
     webgpu_glfw
     webgpu_imgui
     glfw
+    glm
     Eigen3::Eigen
     ${OpenCV_LIBS}
 )
