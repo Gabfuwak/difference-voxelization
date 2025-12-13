@@ -29,6 +29,18 @@ struct CameraFrame {
     cv::Mat previous_frame;  // For temporal differencing
 };
 
+struct RayDebugInfo {
+    Ray ray;
+    int camera_id;
+    bool contributed_to_detection;
+};
+
+struct DebugVisualization {
+    
+    std::vector<RayDebugInfo> rays;
+    
+    // TODO: Add voxel info later
+};
 
 struct DetectionStats {
     size_t ray_count = 0;
@@ -339,10 +351,13 @@ void recursive_detection(Voxel& target_zone, std::vector<Ray>& candidate_rays, f
  * - min_ray_threshold: how many rays have to hit one voxel in order to consider that it's a detection (will depend on the number of cameras aiming at the target zone)
  *
  * */
-std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFrame>& camera_frames, float min_voxel_size = 0.1f, size_t min_ray_threshold = 3, int subdiv_n = 8){
+std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFrame>& camera_frames, float min_voxel_size = 0.1f, size_t min_ray_threshold = 3, int subdiv_n = 8, DebugVisualization* debug_viz = nullptr){
     std::vector<Ray> all_rays;
     std::vector<Voxel> detections;
     DetectionStats stats;
+    if (debug_viz) {
+        debug_viz->rays.clear();
+    }
 
     for (size_t cam_idx = 0; cam_idx < camera_frames.size(); ++cam_idx) {
         const auto& frame = camera_frames[cam_idx];
@@ -375,6 +390,14 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
         stats.ray_count = all_rays.size();
     }
 
+    if (debug_viz) {
+        debug_viz->rays.reserve(all_rays.size());
+        for (const auto& ray : all_rays) {
+            debug_viz->rays.push_back({ray, ray.camera_id, false});
+        }
+    }
+
+
 
     /*
     std::cout << "Total rays generated: " << all_rays.size() << std::endl;
@@ -396,11 +419,17 @@ std::vector<Voxel> detect_objects(Voxel target_zone, const std::vector<CameraFra
     recursive_detection(target_zone, all_rays, min_voxel_size, min_ray_threshold, detections, stats, subdiv_n, 0);
 
 
+    if (debug_viz && !detections.empty()) {
+        for (auto& ray_info : debug_viz->rays) {
+            for (const auto& det : detections) {
+                if (rayIntersectsVoxel(ray_info.ray, det)) {
+                    ray_info.contributed_to_detection = true;
+                    break;
+                }
+            }
+        }
+    }
 
-    std::cout << "Subdivisions: " << stats.rays_subdivided
-          << ", Total subrays: " << stats.total_subrays_created << std::endl;
-
-    std::cout << "Ray count: " << stats.ray_count << '\n';
     return detections;
 
 }

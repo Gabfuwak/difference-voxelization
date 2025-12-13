@@ -101,11 +101,42 @@ int main() {
     auto droneMesh = std::make_shared<scene::Mesh>(
         scene::Mesh::createCube(ctx.device, ctx.queue));
 
+
     scene::Transform droneTransform;
         droneTransform.scale = Eigen::Vector3f(0.5f, 0.5f, 0.5f);
         objects.push_back({droneMesh, droneTransform, defaultMaterial});
 
     size_t droneIndex = objects.size() - 1;  // remember index for animation
+    
+
+
+    // Debug ray visualization mesh (thin stretched cube)
+    auto rayLineMesh = std::make_shared<scene::Mesh>(
+        scene::Mesh::createCube(ctx.device, ctx.queue));
+
+    // Debug visualization materials
+    std::vector<std::shared_ptr<Material>> cameraRayMaterials;
+    std::vector<Eigen::Vector3f> cameraColors = {
+        {1.0f, 0.0f, 0.0f},  // Red - Camera 0
+        {0.0f, 1.0f, 0.0f},  // Green - Camera 1
+        {0.0f, 0.0f, 1.0f},  // Blue - Camera 2
+        {1.0f, 1.0f, 0.0f},  // Yellow - Camera 3
+        {1.0f, 0.0f, 1.0f},  // Magenta - Camera 4
+    };
+
+    for (const auto& color : cameraColors) {
+        auto mat = std::make_shared<Material>(
+            Material::createColored(ctx.device, ctx.queue, color));
+        mat->createBindGroup(ctx.device, renderer.bindGroupLayout,
+                            renderer.uniformBuffer, dummyMaskView);
+        cameraRayMaterials.push_back(mat);
+    }
+
+    // Bright red for detection rays
+    auto detectionRayMaterial = std::make_shared<Material>(
+        Material::createColored(ctx.device, ctx.queue, Eigen::Vector3f(1.0f, 0.0f, 0.0f)));
+    detectionRayMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout,
+                                         renderer.uniformBuffer, dummyMaskView);
 
     // House - left side
     scene::Transform houseTransform;
@@ -149,7 +180,7 @@ int main() {
         .spread = 3.0f,
         .zoneHalfSize = 2.0f,
         .movementSpeed = 0.1f,
-        .insectSize = 0.01f
+        .insectSize = 0.001f
     };
 
     auto makeObserver = [&](Eigen::Vector3f pos, Eigen::Vector3f target) {
@@ -177,6 +208,8 @@ int main() {
     std::vector<cv::Mat> previousFrames(observers.size());
 
 
+    bool show_debug_viz = false;
+    DebugVisualization debug_viz;
 
 
     float curr_simulation_time = 0.0f;
@@ -199,6 +232,9 @@ int main() {
     while (!debugWindow.shouldClose()) {
     //while(time <= 0.02) {
         glfwPollEvents();
+        if (show_debug_viz) {
+            debug_viz.rays.clear();
+        }
 
         double curr_real_time = glfwGetTime();
         frame_count++;
@@ -259,11 +295,15 @@ int main() {
         size_t min_ray_threshold = 3;
 
         auto start = std::chrono::high_resolution_clock::now();
-        auto detections = detect_objects(target_zone, frames, min_voxel_size, min_ray_threshold, 8);
+        auto detections = detect_objects(target_zone, frames, min_voxel_size, min_ray_threshold, 8, show_debug_viz ? &debug_viz : nullptr);
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 
+
+
         avg_detection_time += (duration.count() - avg_detection_time) / frame_count;
+
+
 
         // Compute centroid (even if empty, for safe debug rendering)
         Eigen::Vector3f centroid(0, 0, 0);
@@ -277,6 +317,50 @@ int main() {
             total_error += error;
         }
 
+        // Build debug visualization objects
+        std::vector<scene::SceneObject> debugObjects;
+        if (show_debug_viz) {
+            float rayLength = 1000.0f;
+            float rayThickness = 0.01f;
+
+            // Limit to avoid GPU overload
+            const size_t MAX_DEBUG_RAYS = 500;
+            size_t rayCount = debug_viz.rays.size();
+            size_t step = std::max(size_t(1), rayCount / MAX_DEBUG_RAYS);
+
+            for (size_t i = 0; i < rayCount; i += step) {
+                const auto& ray_info = debug_viz.rays[i];
+                scene::Transform rayTransform;
+
+                Eigen::Vector3f dir = ray_info.ray.direction.normalized();
+
+                // Position at midpoint of ray (cube is centered, so offset by half length)
+                rayTransform.position = ray_info.ray.origin + dir * (rayLength * 0.5f);
+
+                rayTransform.scale = Eigen::Vector3f(rayThickness, rayThickness, rayLength);
+
+                // Rotate to align Z-axis with ray direction
+                Eigen::Vector3f defaultDir(0.0f, 0.0f, 1.0f);
+                Eigen::Vector3f axis = defaultDir.cross(dir);
+                float axisNorm = axis.norm();
+                
+                if (axisNorm > 0.0001f) {
+                    float angle = std::acos(std::clamp(defaultDir.dot(dir), -1.0f, 1.0f));
+                    rayTransform.rotation = Eigen::AngleAxisf(angle, axis / axisNorm);
+                } else if (defaultDir.dot(dir) < 0) {
+                    // Ray points opposite to Z, rotate 180° around any perpendicular axis
+                    rayTransform.rotation = Eigen::AngleAxisf(M_PI, Eigen::Vector3f::UnitX());
+                }
+
+                std::shared_ptr<Material> rayMaterial;
+                if (ray_info.contributed_to_detection) {
+                    rayMaterial = detectionRayMaterial;
+                    debugObjects.push_back({rayLineMesh, rayTransform, rayMaterial});
+                } 
+
+            }
+        }
+
         // Debug window rendering (always runs)
         auto surfaceTextureView = debugWindow.getCurrentTextureView();
         
@@ -285,6 +369,7 @@ int main() {
         ImGui::NewFrame();
 
         ImGui::Begin("Stats");
+        ImGui::Checkbox("Show Debug Visualization", &show_debug_viz);
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::Text("Detection time: %.2f ms", avg_detection_time / 1000.0);
         ImGui::Text("Detections: %zu", detections.size());
@@ -321,7 +406,12 @@ int main() {
                 drawMarker(centroid, IM_COL32(0, 0, 255, 255));  // Blue: detection
             }
 
-            renderer.renderScene(allObjects, activeCamera, depthView, surfaceTextureView, true);
+            std::vector<scene::SceneObject> renderObjects = allObjects;
+            if (show_debug_viz) {
+                renderObjects.insert(renderObjects.end(), debugObjects.begin(), debugObjects.end());
+            }
+            
+            renderer.renderScene(renderObjects, activeCamera, depthView, surfaceTextureView, true);
         } else {
             renderer.renderImgui(depthView, surfaceTextureView, true);  // clear=true since no scene rendered
         }

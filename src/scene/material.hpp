@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <webgpu/webgpu_cpp.h>
+#include <Eigen/Dense>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -106,6 +107,38 @@ public:
         destination.texture = mat.texture;
         wgpu::Extent3D writeSize{1, 1, 1};
         queue.WriteTexture(&destination, &white, 4, &dataLayout, &writeSize);
+        
+        mat.textureView = mat.texture.CreateView();
+        mat.sampler = device.CreateSampler({});
+        
+        return mat;
+    }
+
+    static Material createColored(wgpu::Device device, wgpu::Queue queue, 
+                             const Eigen::Vector3f& color) {
+        Material mat;
+        mat.hasTexture = false;
+        
+        // Create 1x1 texture with the specified color
+        wgpu::TextureDescriptor texDesc{};
+        texDesc.size = {1, 1, 1};
+        texDesc.format = wgpu::TextureFormat::RGBA8Unorm;
+        texDesc.usage = wgpu::TextureUsage::TextureBinding | wgpu::TextureUsage::CopyDst;
+        texDesc.mipLevelCount = 1;
+        mat.texture = device.CreateTexture(&texDesc);
+        
+        // Convert float color (0-1) to uint8 (0-255)
+        uint8_t r = static_cast<uint8_t>(color.x() * 255);
+        uint8_t g = static_cast<uint8_t>(color.y() * 255);
+        uint8_t b = static_cast<uint8_t>(color.z() * 255);
+        uint32_t colorValue = (255 << 24) | (b << 16) | (g << 8) | r; // RGBA
+        
+        wgpu::TexelCopyBufferLayout dataLayout{};
+        dataLayout.bytesPerRow = 4;
+        wgpu::TexelCopyTextureInfo destination{};
+        destination.texture = mat.texture;
+        wgpu::Extent3D writeSize{1, 1, 1};
+        queue.WriteTexture(&destination, &colorValue, 4, &dataLayout, &writeSize);
         
         mat.textureView = mat.texture.CreateView();
         mat.sampler = device.CreateSampler({});
