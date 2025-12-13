@@ -58,6 +58,30 @@ int main() {
     wgpu::Texture depthTexture = renderer.createDepthTexture();
     wgpu::TextureView depthView = depthTexture.CreateView();
 
+    // High-res textures for debug camera AA 
+    // this is a quick fix and kinda ugly..
+    constexpr uint32_t debugSupersample = 2;
+    uint32_t debugRenderWidth = surfaceWidth * debugSupersample;
+    uint32_t debugRenderHeight = surfaceHeight * debugSupersample;
+
+    wgpu::TextureDescriptor debugRenderDesc{};
+    debugRenderDesc.label = "Debug high-res render texture";
+    debugRenderDesc.size = {debugRenderWidth, debugRenderHeight, 1};
+    debugRenderDesc.format = wgpu::TextureFormat::BGRA8Unorm;
+    debugRenderDesc.usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::TextureBinding;
+    wgpu::Texture debugRenderTexture = ctx.device.CreateTexture(&debugRenderDesc);
+    wgpu::TextureView debugRenderView = debugRenderTexture.CreateView();
+
+    wgpu::TextureDescriptor debugDepthDesc{};
+    debugDepthDesc.label = "Debug high-res depth texture";
+    debugDepthDesc.size = {debugRenderWidth, debugRenderHeight, 1};
+    debugDepthDesc.format = wgpu::TextureFormat::Depth24Plus;
+    debugDepthDesc.usage = wgpu::TextureUsage::RenderAttachment;
+    wgpu::Texture debugDepthTexture = ctx.device.CreateTexture(&debugDepthDesc);
+    wgpu::TextureView debugDepthView = debugDepthTexture.CreateView();
+
+    core::Downsampler debugDownsampler(&ctx, wgpu::TextureFormat::BGRA8Unorm);
+
     auto defaultMaterial = std::make_shared<Material>(
         Material::createUntextured(ctx.device, ctx.queue));
     defaultMaterial->createBindGroup(ctx.device, renderer.bindGroupLayout,
@@ -413,7 +437,9 @@ int main() {
                 renderObjects.insert(renderObjects.end(), debugObjects.begin(), debugObjects.end());
             }
             
-            renderer.renderScene(renderObjects, activeCamera, depthView, surfaceTextureView, true);
+            renderer.renderScene(renderObjects, activeCamera, debugDepthView, debugRenderView, false);
+            debugDownsampler.downsample(debugRenderView, surfaceTextureView, surfaceWidth, surfaceHeight);
+            renderer.renderImgui(depthView, surfaceTextureView, false);
         } else {
             renderer.renderImgui(depthView, surfaceTextureView, true);  // clear=true since no scene rendered
         }
