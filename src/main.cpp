@@ -10,6 +10,7 @@
 #include "scene/scene_object.hpp"
 #include "scene/observation_camera.hpp"
 #include "vision/detect_object.hpp"
+#include "vision/cluster_detections.hpp"
 #include "webgpu/webgpu.h"
 #include "webgpu/webgpu_cpp.h"
 #include <opencv2/opencv.hpp>
@@ -341,6 +342,8 @@ int main() {
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 
+        auto clusters = clusterDetections(detections, min_voxel_size);
+
 
 
         avg_detection_time += (duration.count() - avg_detection_time) / frame_count;
@@ -349,9 +352,9 @@ int main() {
 
         // Compute centroid (even if empty, for safe debug rendering)
         Eigen::Vector3f centroid(0, 0, 0);
-        if (!detections.empty()) {
-            for (const auto& det : detections) {
-                centroid += det.center;
+        if (!clusters.empty()) {
+            for (const auto& det : clusters) {
+                centroid += det.centroid;
             }
             centroid /= detections.size();
 
@@ -426,6 +429,7 @@ int main() {
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::Text("Detection time: %.2f ms", avg_detection_time / 1000.0);
         ImGui::Text("Detections: %zu", detections.size());
+        ImGui::Text("Clusters: %zu", clusters.size());
         ImGui::Text("Error: %.3f m", (centroid - objects[droneIndex].transform.position).norm());
         ImGui::SliderInt("Min Voxel Depth", &minVoxelDepth, 0, 10);
         ImGui::End();
@@ -457,7 +461,10 @@ int main() {
 
             drawMarker(objects[droneIndex].transform.position, IM_COL32(255, 0, 0, 255));  // Red: ground truth
             if (!detections.empty()) {
-                drawMarker(centroid, IM_COL32(0, 0, 255, 255));  // Blue: detection
+                for(auto cluster : clusters){
+                    auto centroid = cluster.centroid;
+                    drawMarker(centroid, IM_COL32(0, 0, 255, 255));  // Blue: detection
+                }
             }
 
             std::vector<scene::SceneObject> renderObjects = allObjects;
