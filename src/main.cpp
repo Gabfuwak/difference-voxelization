@@ -103,7 +103,7 @@ int main() {
 
 
     scene::Transform droneTransform;
-        droneTransform.scale = Eigen::Vector3f(0.5f, 0.5f, 0.5f);
+        droneTransform.scale = Eigen::Vector3f(0.2f, 0.2f, 0.2f);
         objects.push_back({droneMesh, droneTransform, defaultMaterial});
 
     size_t droneIndex = objects.size() - 1;  // remember index for animation
@@ -175,9 +175,9 @@ int main() {
     auto insectMesh = std::make_shared<scene::Mesh>(scene::Mesh::createCube(ctx.device, ctx.queue));
 
     scene::InsectSwarmConfig insectConfig{
-        .count = 10,
-        .distance = 2.0f,
-        .spread = 3.0f,
+        .count = 50,
+        .distance = 3.0f,
+        .spread = 0.3f,
         .zoneHalfSize = 2.0f,
         .movementSpeed = 0.1f,
         .insectSize = 0.001f
@@ -193,11 +193,12 @@ int main() {
 
     std::vector<scene::ObservationCamera> observers;
 
-    observers.push_back(makeObserver({0.0f, 2.0f, 200.0f}, {0.0f, 30.0f, 0.0f}));      // Center, eye level
-    observers.push_back(makeObserver({-60.0f, 2.0f, 191.0f}, {0.0f, 30.0f, 0.0f}));   // Left side
-    observers.push_back(makeObserver({60.0f, 2.0f, 191.0f}, {0.0f, 30.0f, 0.0f}));    // Right side
-    observers.push_back(makeObserver({0.0f, 15.0f, 199.0f}, {0.0f, 30.0f, 0.0f}));    // Higher up
-    observers.push_back(makeObserver({-30.0f, 8.0f, 197.0f}, {0.0f, 30.0f, 0.0f}));   // Off-center
+    // Cameras arranged in pentagon, ~180m from center, looking at drone altitude
+    observers.push_back(makeObserver({0.0f, 2.0f, 180.0f}, {0.0f, 30.0f, 0.0f}));       // Front
+    observers.push_back(makeObserver({171.0f, 5.0f, 56.0f}, {0.0f, 30.0f, 0.0f}));      // Front-right
+    observers.push_back(makeObserver({106.0f, 2.0f, -146.0f}, {0.0f, 30.0f, 0.0f}));    // Back-right
+    observers.push_back(makeObserver({-106.0f, 8.0f, -146.0f}, {0.0f, 30.0f, 0.0f}));   // Back-left
+    observers.push_back(makeObserver({-171.0f, 3.0f, 56.0f}, {0.0f, 30.0f, 0.0f}));     // Front-left
 
     // Optional: Add trees for some occlusion on this side
     addTree(0.0f, 180.0f);
@@ -241,8 +242,8 @@ int main() {
 
         curr_simulation_time += 0.016f; 
 
-        // Drone flies in circle: 50m radius, 30m height
-        float radius = 50.0f;
+        // Drone flies in circle
+        float radius = 10.0f;
         float height = 30.0f;
         float speed = 2.f;
 
@@ -273,6 +274,7 @@ int main() {
 
         // Render all frames in parallel
         capture.renderAll(cameras, allObjects, renderer);
+        capture.downsampleAll();
         capture.copyAll();
         capture.sync();
         std::vector<cv::Mat> currentFrames = capture.readAll();
@@ -354,7 +356,7 @@ int main() {
 
                 std::shared_ptr<Material> rayMaterial;
                 if (ray_info.contributed_to_detection) {
-                    rayMaterial = detectionRayMaterial;
+                    rayMaterial = cameraRayMaterials[ray_info.camera_id];
                     debugObjects.push_back({rayLineMesh, rayTransform, rayMaterial});
                 } 
 
