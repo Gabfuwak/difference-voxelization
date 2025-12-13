@@ -1,7 +1,7 @@
 #pragma once
 
 #include <webgpu/webgpu_cpp.h>
-#include "context.hpp"
+#include "core/context.hpp"
 
 namespace core {
 

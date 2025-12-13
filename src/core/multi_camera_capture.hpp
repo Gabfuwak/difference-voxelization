@@ -5,9 +5,9 @@
 #include <cassert>
 #include <webgpu/webgpu_cpp.h>
 #include <opencv2/opencv.hpp>
-#include "context.hpp"
-#include "renderer.hpp"
-#include "downsampler.hpp"
+#include "core/context.hpp"
+#include "core/renderer.hpp"
+#include "core/downsampler.hpp"
 #include "scene/scene_object.hpp"
 #include "scene/camera.hpp"
 
