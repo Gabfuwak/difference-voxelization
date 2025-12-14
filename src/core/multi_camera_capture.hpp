@@ -10,6 +10,7 @@
 #include "core/downsampler.hpp"
 #include "scene/scene_object.hpp"
 #include "scene/camera.hpp"
+#include "core/noise_pass.hpp"
 
 namespace core {
 
@@ -68,7 +69,11 @@ public:
         }
     }
 
-    void noiseAll() {}
+    void noiseAll(wgpu::CommandEncoder& enc, NoisePass& noisepass, float time, float seed) {
+        for (auto& target : targets_) {
+            noisepass.render(enc, target.outputView, target.width, target.height, time, seed);
+        }
+    }
 
     void copyAll() {
         wgpu::CommandEncoder encoder = ctx_->device.CreateCommandEncoder();

@@ -328,6 +328,13 @@ int main() {
         // Render all frames in parallel
         capture.renderAll(cameras, allObjects, renderer);
         capture.downsampleAll();
+
+        // Uncomment this for noise
+        // auto enc = ctx.device.CreateCommandEncoder();
+        // capture.noiseAll(enc, noisepass, curr_real_time, 0);
+        // auto command = enc.Finish();
+        // ctx.queue.Submit(1, &command);
+
         capture.copyAll();
         capture.sync();
         std::vector<cv::Mat> currentFrames = capture.readAll();
