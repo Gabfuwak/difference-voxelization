@@ -1,6 +1,9 @@
+#include <iostream>
 #include <webgpu/webgpu_cpp.h>
 #include <cstdint>
 #include <cstring>
+#include <sstream>
+#include <fstream>
 
 struct ParamsCPU {
     float resolution[2];
@@ -16,7 +19,24 @@ struct NoisePass {
     wgpu::BindGroup bg;
     wgpu::Buffer paramsBuf;
 
-    void init(wgpu::Device dev, wgpu::Queue q, wgpu::TextureFormat colorFmt, wgpu::ShaderModule shader) {
+    std::string readFile(const std::string& path) {
+        std::ifstream f(path);
+        if (!f.is_open()) {
+            throw std::runtime_error("Cannot open file: " + path);
+        }
+        std::stringstream ss;
+        ss << f.rdbuf();
+        return ss.str();
+    }
+
+    void init(wgpu::Device dev, wgpu::Queue q, wgpu::TextureFormat colorFmt, wgpu::TextureFormat depthFormat) {
+        std::string shaderCode = readFile(SHADERS_DIR "/noise_pass.wgsl");
+        wgpu::ShaderSourceWGSL wgsl{};
+        wgsl.code = shaderCode.c_str();
+        wgpu::ShaderModuleDescriptor shaderDesc{};
+        shaderDesc.nextInChain = &wgsl;
+        wgpu::ShaderModule shaderModule = dev.CreateShaderModule(&shaderDesc);
+
         device = dev; queue = q;
 
         wgpu::BindGroupLayoutEntry e{};
@@ -56,14 +76,14 @@ struct NoisePass {
         cts.format = colorFmt;
 
         wgpu::FragmentState fs{};
-        fs.module = shader;
+        fs.module = shaderModule;
         fs.entryPoint = "fs_main";
         fs.targetCount = 1;
         fs.targets = &cts;
 
         wgpu::RenderPipelineDescriptor rp{};
         rp.layout = pl;
-        rp.vertex.module = shader;
+        rp.vertex.module = shaderModule;
         rp.vertex.entryPoint = "vs_main";
         rp.primitive.topology = wgpu::PrimitiveTopology::TriangleList;
         rp.fragment = &fs;
@@ -72,6 +92,8 @@ struct NoisePass {
     }
 
     void render(wgpu::CommandEncoder enc, wgpu::TextureView outView, uint32_t w, uint32_t h, float time, float seed) {
+        std::cout << "Hello!" << '\n';
+
         ParamsCPU p{};
         p.resolution[0] = float(w);
         p.resolution[1] = float(h);

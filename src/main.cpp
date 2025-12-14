@@ -19,6 +19,7 @@
 #include "core/renderer.hpp"
 #include "core/multi_camera_capture.hpp"
 #include "core/window.hpp"
+#include "core/noise_pass.hpp"
 
 #include "scene/scene_object.hpp"
 #include "scene/observation_camera.hpp"
@@ -140,7 +141,6 @@ int main() {
         objects.push_back({droneMesh, droneTransform, defaultMaterial});
 
     size_t droneIndex = objects.size() - 1;  // remember index for animation
-
 
     // Debug voxel visualization mesh (wireframe cube)
     auto voxelWireframeMesh = std::make_shared<scene::Mesh>(
@@ -279,6 +279,8 @@ int main() {
     info.DepthStencilFormat = static_cast<WGPUTextureFormat>(wgpu::TextureFormat::Depth24Plus);
     ImGui_ImplWGPU_Init(&info);
 
+    NoisePass noisepass;
+    noisepass.init(ctx.device, ctx.queue, renderer.format, wgpu::TextureFormat::Depth24Plus);
 
     while (!debugWindow.shouldClose()) {
     //while(time <= 0.02) {
@@ -485,6 +487,12 @@ int main() {
 
             renderer.renderScene(renderObjects, activeCamera, debugDepthView, debugRenderView, false);
             debugDownsampler.downsample(debugRenderView, surfaceTextureView, surfaceWidth, surfaceHeight);
+
+            auto enc = ctx.device.CreateCommandEncoder();
+            noisepass.render(enc, surfaceTextureView, fbWidth, fbHeight, curr_real_time, 0);
+            auto command = enc.Finish();
+            ctx.queue.Submit(1, &command);
+
             renderer.renderImgui(depthView, surfaceTextureView, false);
         } else {
             renderer.renderImgui(depthView, surfaceTextureView, true);  // clear=true since no scene rendered
