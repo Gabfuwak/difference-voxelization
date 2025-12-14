@@ -72,8 +72,17 @@ struct NoisePass {
         bgDesc.entries = &bge;
         bg = device.CreateBindGroup(&bgDesc);
 
+        wgpu::BlendState blend{};
+        blend.color.srcFactor = wgpu::BlendFactor::SrcAlpha;
+        blend.color.dstFactor = wgpu::BlendFactor::OneMinusSrcAlpha;
+        blend.color.operation = wgpu::BlendOperation::Add;
+        blend.alpha.srcFactor = wgpu::BlendFactor::Zero;
+        blend.alpha.dstFactor = wgpu::BlendFactor::One;
+        blend.alpha.operation = wgpu::BlendOperation::Add;
+
         wgpu::ColorTargetState cts{};
         cts.format = colorFmt;
+        cts.blend = &blend;
 
         wgpu::FragmentState fs{};
         fs.module = shaderModule;
@@ -92,8 +101,6 @@ struct NoisePass {
     }
 
     void render(wgpu::CommandEncoder enc, wgpu::TextureView outView, uint32_t w, uint32_t h, float time, float seed) {
-        std::cout << "Hello!" << '\n';
-
         ParamsCPU p{};
         p.resolution[0] = float(w);
         p.resolution[1] = float(h);
@@ -103,9 +110,8 @@ struct NoisePass {
 
         wgpu::RenderPassColorAttachment ca{};
         ca.view = outView;
-        ca.loadOp = wgpu::LoadOp::Clear;
+        ca.loadOp = wgpu::LoadOp::Load;
         ca.storeOp = wgpu::StoreOp::Store;
-        ca.clearValue = {0, 0, 0, 1};
 
         wgpu::RenderPassDescriptor rpd{};
         rpd.colorAttachmentCount = 1;

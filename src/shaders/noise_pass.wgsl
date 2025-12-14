@@ -4,6 +4,8 @@ struct Params {
   seed : f32,
 };
 
+const blend = 0.5;
+
 @group(0) @binding(0) var<uniform> params : Params;
 
 fn hash12(p: vec2<f32>) -> f32 {
@@ -35,5 +37,5 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VSOut {
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let frag = in.uv * params.resolution;
   let n = hash12(frag + vec2<f32>(params.time * 60.0, params.time * 13.0));
-  return vec4<f32>(vec3<f32>(n), 1.0);
+  return vec4<f32>(vec3<f32>(n), blend);
 }
