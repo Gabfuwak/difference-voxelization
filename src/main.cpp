@@ -67,7 +67,7 @@ int main() {
     wgpu::Texture depthTexture = renderer.createDepthTexture();
     wgpu::TextureView depthView = depthTexture.CreateView();
 
-    // High-res textures for debug camera AA 
+    // High-res textures for debug camera AA
     // this is a quick fix and kinda ugly..
     constexpr uint32_t debugSupersample = 2;
     uint32_t debugRenderWidth = surfaceWidth * debugSupersample;
@@ -140,7 +140,7 @@ int main() {
         objects.push_back({droneMesh, droneTransform, defaultMaterial});
 
     size_t droneIndex = objects.size() - 1;  // remember index for animation
-    
+
 
     // Debug voxel visualization mesh (wireframe cube)
     auto voxelWireframeMesh = std::make_shared<scene::Mesh>(
@@ -279,7 +279,7 @@ int main() {
     info.DepthStencilFormat = static_cast<WGPUTextureFormat>(wgpu::TextureFormat::Depth24Plus);
     ImGui_ImplWGPU_Init(&info);
 
-    
+
     while (!debugWindow.shouldClose()) {
     //while(time <= 0.02) {
         glfwPollEvents();
@@ -291,7 +291,7 @@ int main() {
         double curr_real_time = glfwGetTime();
         frame_count++;
 
-        curr_simulation_time += 0.016f; 
+        curr_simulation_time += 0.016f;
 
         // Drone flies in circle
         float radius = 10.0f;
@@ -392,7 +392,7 @@ int main() {
                 Eigen::Vector3f defaultDir(0.0f, 0.0f, 1.0f);
                 Eigen::Vector3f axis = defaultDir.cross(dir);
                 float axisNorm = axis.norm();
-                
+
                 if (axisNorm > 0.0001f) {
                     float angle = std::acos(std::clamp(defaultDir.dot(dir), -1.0f, 1.0f));
                     rayTransform.rotation = Eigen::AngleAxisf(angle, axis / axisNorm);
@@ -405,7 +405,7 @@ int main() {
                 if (ray_info.contributed_to_detection) {
                     rayMaterial = cameraRayMaterials[ray_info.camera_id];
                     debugObjects.push_back({rayLineMesh, rayTransform, rayMaterial});
-                } 
+                }
 
             }
 
@@ -415,7 +415,7 @@ int main() {
                 voxelTransform.position = voxel_info.voxel.center;
                 float size = voxel_info.voxel.half_size * 2.0f;
                 voxelTransform.scale = Eigen::Vector3f(size, size, size);
-                
+
                 auto& material = voxel_info.is_detection ? detectionVoxelMaterial : visitedVoxelMaterial;
                 debugObjects.push_back({voxelWireframeMesh, voxelTransform, material});
             }
@@ -423,7 +423,7 @@ int main() {
 
         // Debug window rendering (always runs)
         auto surfaceTextureView = debugWindow.getCurrentTextureView();
-        
+
         ImGui_ImplGlfw_NewFrame();
         ImGui_ImplWGPU_NewFrame();
         ImGui::NewFrame();
@@ -454,7 +454,7 @@ int main() {
             auto drawMarker = [&](const Eigen::Vector3f& worldPos, ImU32 color) {
                 auto clipPos = viewProjection * Eigen::Vector4f(worldPos.x(), worldPos.y(), worldPos.z(), 1);
                 if (clipPos.w() <= 0.0f) return;
-                
+
                 auto clipPosXy = Eigen::Vector2f(clipPos.x(), clipPos.y()) / clipPos.w();
                 if (clipPosXy.x() < -1.0f || clipPosXy.x() > 1.0f ||
                     clipPosXy.y() < -1.0f || clipPosXy.y() > 1.0f) return;
@@ -482,7 +482,7 @@ int main() {
             if (show_debug_viz) {
                 renderObjects.insert(renderObjects.end(), debugObjects.begin(), debugObjects.end());
             }
-            
+
             renderer.renderScene(renderObjects, activeCamera, debugDepthView, debugRenderView, false);
             debugDownsampler.downsample(debugRenderView, surfaceTextureView, surfaceWidth, surfaceHeight);
             renderer.renderImgui(depthView, surfaceTextureView, false);
